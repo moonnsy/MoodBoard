@@ -1,0 +1,2024 @@
+/* MoodBoard Extension Styles */
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=Inter:wght@400;500;600&display=swap');
+
+/* ===== THEME SYSTEM ===== */
+:root, [data-mb-theme="cork"] {
+    --mb-accent: #d4a574; --mb-accent-hover: #e0b88a;
+    --mb-text: #f3e7d8; --mb-text-muted: #c0a88e; --mb-on-accent: #2a1d12;
+    --mb-bg-primary: rgba(62,48,38,0.94); --mb-bg-secondary: rgba(78,60,46,0.92);
+    --mb-bg-input: rgba(45,34,26,0.7); --mb-border: rgba(212,165,116,0.35);
+    --mb-board-bg: #6b4f3a; --mb-board-texture: url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E");
+    --mb-pin-color: #e74c3c; --mb-card-bg: #fdf6e3; --mb-card-text: #3c2a1a;
+    --mb-card-shadow: 2px 3px 12px rgba(0,0,0,0.35);
+    --mb-font-handwritten: 'Caveat', cursive;
+}
+/* Every theme sets the same contract. --mb-text / --mb-text-muted are the two
+   text tones used across the chrome; they are picked against --mb-bg-primary so
+   nothing has to be re-checked per theme. */
+[data-mb-theme="linen"] {
+    --mb-accent: #8f4c2b; --mb-accent-hover: #a85f3c;
+    --mb-bg-primary: #efe7dc; --mb-bg-secondary: #e4d9ca;
+    --mb-bg-input: #ffffff; --mb-border: #c3b39d;
+    --mb-text: #35291d; --mb-text-muted: #584835; --mb-on-accent: #ffffff;
+    --mb-board-bg: #d9cdbb; --mb-board-texture: none;
+    --mb-pin-color: #b5493c; --mb-card-bg: #fffdf8; --mb-card-text: #33281c;
+    --mb-card-shadow: 0 2px 10px rgba(90,70,50,0.22);
+    --mb-font-handwritten: 'Caveat', cursive;
+}
+[data-mb-theme="ink"] {
+    --mb-accent: #2d5a8e; --mb-accent-hover: #3f74ad;
+    --mb-bg-primary: #f4f4f2; --mb-bg-secondary: #e6e6e3;
+    --mb-bg-input: #ffffff; --mb-border: #b6b6b1;
+    --mb-text: #1f2024; --mb-text-muted: #494b53; --mb-on-accent: #ffffff;
+    --mb-board-bg: #dcdcd8; --mb-board-texture: none;
+    --mb-pin-color: #2f4f7a; --mb-card-bg: #ffffff; --mb-card-text: #1b1c20;
+    --mb-card-shadow: 0 2px 10px rgba(30,35,45,0.18);
+    --mb-font-handwritten: 'Caveat', cursive;
+}
+[data-mb-theme="plum"] {
+    --mb-accent: #d9a7d0; --mb-accent-hover: #e8bfe0;
+    --mb-bg-primary: #241a2b; --mb-bg-secondary: #2f2338;
+    --mb-bg-input: #180f1e; --mb-border: #4d3a58;
+    --mb-text: #f2e9f5; --mb-text-muted: #b9a5c2; --mb-on-accent: #2a1730;
+    --mb-board-bg: #392a44; --mb-board-texture: none;
+    --mb-pin-color: #e0728f; --mb-card-bg: #3d2f49; --mb-card-text: #f5eef7;
+    --mb-card-shadow: 0 4px 16px rgba(0,0,0,0.45);
+    --mb-font-handwritten: 'Caveat', cursive;
+}
+[data-mb-theme="forest"] {
+    --mb-accent: #93c9a0; --mb-accent-hover: #b0dcbb;
+    --mb-bg-primary: #16241d; --mb-bg-secondary: #1f3128;
+    --mb-bg-input: #0e1a14; --mb-border: #35513f;
+    --mb-text: #e8f2ea; --mb-text-muted: #a2b8a8; --mb-on-accent: #12241a;
+    --mb-board-bg: #24382c; --mb-board-texture: none;
+    --mb-pin-color: #d98b5f; --mb-card-bg: #2b4234; --mb-card-text: #ecf4ee;
+    --mb-card-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    --mb-font-handwritten: 'Caveat', cursive;
+}
+[data-mb-theme="auto"] {
+    --mb-accent: var(--SmartThemeQuoteColor, #d4a574); --mb-accent-hover: var(--SmartThemeQuoteColor, #e0b88a);
+    --mb-bg-primary: var(--SmartThemeBlurTintColor, rgba(15,20,25,0.94)); --mb-bg-secondary: var(--SmartThemeBotMesBlurTintColor, rgba(22,28,35,0.92));
+    --mb-bg-input: var(--black50a, rgba(10,15,20,0.6)); --mb-border: var(--SmartThemeQuoteColor, rgba(141,183,213,0.3));
+    --mb-text: var(--SmartThemeBodyColor, #e8e8e8); --mb-text-muted: var(--SmartThemeBodyColor, #b0b0b0); --mb-on-accent: #10141a;
+    --mb-board-bg: var(--SmartThemeBlurTintColor, #2a2a2a); --mb-board-texture: none;
+    --mb-pin-color: var(--SmartThemeQuoteColor, #e74c3c); --mb-card-bg: var(--SmartThemeBotMesBlurTintColor, rgba(30,30,40,0.9)); --mb-card-text: var(--SmartThemeBodyColor, #e0e0e0);
+    --mb-card-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    --mb-font-handwritten: 'Caveat', cursive;
+}
+/* Tavern Auto inherits the user's theme, whose muted tone can land anywhere.
+   Dim it relative to the body colour instead of guessing a fixed grey. */
+[data-mb-theme="auto"] { --mb-text-muted-opacity: 0.7; }
+
+/* ===== FULLSCREEN MODAL ===== */
+#mb-modal {
+    display: none; position: fixed !important;
+    top: var(--mb-vtop, 0px) !important; left: 0 !important;
+    /* --mb-vh is kept in sync with visualViewport. dvh still counts space the
+       on-screen keyboard is covering, so the shell ended up taller than what you
+       can actually see and the header was pushed off the top. */
+    width: 100vw !important; height: 100vh !important; height: 100dvh !important;
+    height: var(--mb-vh, 100dvh) !important;
+    background-color: rgba(0,0,0,0.55) !important;
+    z-index: 999999 !important;
+    backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+}
+.mb-shell {
+    display: flex; flex-direction: column;
+    width: 100%; height: 100%;
+    /* Neither the shell nor the modal may ever scroll. If they can, the phone
+       keyboard scrolls them to reveal the caret and the whole UI stays offset
+       after it closes. */
+    overflow: hidden;
+}
+
+/* ===== HEADER ===== */
+.mb-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; background: var(--mb-bg-secondary);
+    border-bottom: 1px solid var(--mb-border); flex-shrink: 0; gap: 8px;
+    z-index: 10;
+}
+.mb-header-left { display: flex; align-items: center; gap: 10px; }
+.mb-header-right { display: flex; align-items: center; gap: 12px; }
+.mb-title {
+    font-size: 1.1em; font-weight: 600; color: var(--mb-accent);
+    font-family: var(--mb-font-handwritten); letter-spacing: 0.5px;
+}
+.mb-scope-btn {
+    background: transparent; border: 1px solid var(--mb-border); color: var(--mb-text-muted);
+    font-size: 0.78em; font-weight: 600; cursor: pointer; padding: 4px 10px;
+    border-radius: 16px; transition: 0.2s; white-space: nowrap;
+}
+.mb-scope-btn:hover { color: var(--mb-accent); border-color: var(--mb-accent); }
+.mb-scope-btn.active { color: var(--mb-accent); border-color: var(--mb-accent); background: rgba(255,255,255,0.06); }
+.mb-icon-btn {
+    background: none; border: none; color: var(--mb-text-muted); cursor: pointer;
+    font-size: 1.1em; transition: color 0.2s; padding: 4px; flex-shrink: 0;
+}
+.mb-icon-btn:hover { color: var(--mb-accent); }
+.mb-close { cursor: pointer; font-size: 1.2em; color: var(--mb-text-muted); transition: color 0.2s; }
+.mb-close:hover { color: #fff; }
+
+/* ===== TOOLBAR ===== */
+.mb-toolbar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 16px; background: var(--mb-bg-primary);
+    border-bottom: 1px solid var(--mb-border); flex-shrink: 0;
+    flex-wrap: wrap; overflow: visible;
+}
+.mb-tool-btn {
+    background: rgba(255,255,255,0.06); border: 1px solid transparent; color: var(--mb-text-muted);
+    width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.9em; transition: 0.2s; flex-shrink: 0;
+}
+.mb-tool-btn:hover { color: var(--mb-accent); border-color: var(--mb-border); }
+.mb-tool-btn.active { color: var(--mb-accent); background: rgba(255,255,255,0.12); border-color: var(--mb-accent); }
+.mb-tool-sep { width: 1px; height: 22px; background: var(--mb-border); margin: 0 4px; flex-shrink: 0; }
+/* Busy state keeps the button's own icon — swapping in text used to permanently
+   destroy the icon markup and reflow the whole toolbar. */
+.mb-tool-btn.mb-busy { opacity: 0.6; cursor: progress; }
+.mb-tool-btn.mb-busy i { animation: mb-spin 1s linear infinite; }
+@keyframes mb-spin { to { transform: rotate(360deg); } }
+.mb-color-dot {
+    width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: 0.2s; flex-shrink: 0;
+}
+.mb-color-dot:hover, .mb-color-dot.active { border-color: var(--mb-accent); transform: scale(1.15); }
+.mb-stroke-select {
+    background: var(--mb-bg-input); border: 1px solid var(--mb-border);
+    color: var(--mb-card-text); border-radius: 6px; padding: 2px 6px;
+    font-size: 0.8em; outline: none; cursor: pointer;
+}
+
+/* ===== CANVAS AREA ===== */
+.mb-canvas-area {
+    flex: 1; position: relative; overflow: hidden;
+    background-color: var(--mb-board-bg);
+    background-image: var(--mb-board-texture);
+    cursor: grab; touch-action: none;
+}
+.mb-canvas-area.grabbing { cursor: grabbing; }
+.mb-canvas-area.drawing { cursor: crosshair; }
+.mb-canvas-inner {
+    position: absolute; top: 0; left: 0;
+    width: 4000px; height: 4000px;
+    transform-origin: 0 0;
+    /* No transform transition by default: pan/pinch drive this every frame and a
+       transition makes every gesture feel laggy and rubber-bandy. Only the
+       "center view" button opts in, via .mb-smooth. */
+}
+.mb-canvas-inner.mb-smooth { transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.mb-canvas-area.is-panning .mb-canvas-inner { transition: none !important; }
+.mb-draw-canvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none; z-index: 1;
+}
+.mb-draw-canvas.active { pointer-events: auto; cursor: crosshair; }
+/* With a drawing tool active the cards must not swallow the press, or a stroke
+   can only ever be started on bare board — putting the pen down on a photo did
+   nothing at all. */
+.mb-canvas-area.drawing .mb-card { pointer-events: none; }
+
+/* Viewport-sized scratch layer for the stroke currently being drawn. */
+/* Holds every committed stroke, not just a transient preview, so it has to sit
+   *under* the cards — same stacking the in-board raster canvas used to have.
+   Otherwise drawings paint over your notes and photos. */
+.mb-live-canvas {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none; z-index: 1;
+}
+.mb-canvas-inner { z-index: 2; }
+/* Second ink layer, above the cards, for drawing straight onto photos. */
+.mb-live-top { z-index: 3; }
+
+/* ===== BRUSH PANEL (long-press on the pencil) ===== */
+.mb-brush-panel {
+    display: none; position: fixed; z-index: 1000000;
+    width: 260px; max-width: calc(100vw - 16px); padding: 12px;
+    border-radius: 12px; border: 1px solid var(--mb-border);
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-primary), var(--mb-bg-primary));
+    box-shadow: 0 14px 40px rgba(0,0,0,0.5);
+    max-height: 80vh; overflow-y: auto; overscroll-behavior: contain;
+}
+.mb-brush-panel.open { display: block; }
+.mb-brush-title {
+    font-size: 0.75em; color: var(--mb-text-muted);
+    margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.mb-brush-title:first-child { margin-top: 0; }
+.mb-brush-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.mb-brush-layer { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.mb-brush-opt {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 3px; border-radius: 8px; cursor: pointer;
+    background: var(--mb-chip); border: 1px solid transparent;
+    color: var(--mb-text-muted); font-size: 0.62em; text-align: center; transition: 0.15s;
+}
+.mb-brush-opt i { font-size: 1.25em; }
+.mb-brush-opt.wide { flex-direction: row; justify-content: center; gap: 6px; font-size: 0.72em; padding: 9px 6px; }
+.mb-brush-opt:hover { background: var(--mb-chip-strong); color: var(--mb-text); }
+.mb-brush-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); background: var(--mb-chip-strong); }
+.mb-brush-size { display: flex; align-items: center; gap: 10px; }
+.mb-brush-size input { flex: 1 1 auto; min-width: 0; }
+.mb-brush-size b { min-width: 22px; text-align: center; font-size: 0.85em; color: var(--mb-text); }
+.mb-brush-dot {
+    flex: 0 0 auto; border-radius: 50%; display: block;
+    box-shadow: 0 0 0 1px var(--mb-border);
+}
+
+/* ===== CARDS (PINS) ===== */
+/* The 320px ceiling is only a default for cards that were never resized — a
+   sensible size for a pinned quote. Once a card carries a width of its own, that
+   width is the whole answer, and the cap has to get out of the way: it was what
+   silently pinned every "make it bigger" at 320 (260 on a phone). */
+.mb-card.has-size { max-width: none !important; min-width: 0 !important; }
+.mb-card {
+    position: absolute; min-width: 140px; max-width: 320px;
+    background: var(--mb-card-bg); border-radius: 6px;
+    box-shadow: var(--mb-card-shadow);
+    z-index: 5; cursor: grab; user-select: none;
+    transition: box-shadow 0.2s;
+    touch-action: none;
+    /* Keep each card's layout/style work to itself so a board full of images
+       doesn't recalculate as one big subtree. */
+    contain: layout style;
+}
+.mb-card * { touch-action: none; }
+@media (hover: hover) {
+    .mb-card:hover { box-shadow: var(--mb-card-shadow), 0 0 0 2px var(--mb-accent); z-index: 99999; }
+}
+.mb-card.dragging { cursor: grabbing; z-index: 100000; opacity: 0.92; }
+.mb-card-pin {
+    position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--mb-pin-color);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 -2px 3px rgba(0,0,0,0.2), inset 0 2px 3px rgba(255,255,255,0.3);
+    z-index: 6;
+}
+.mb-card-content {
+    padding: 16px 14px 12px; color: var(--mb-card-text);
+    font-size: 0.88em; line-height: 1.55; word-break: break-word;
+    min-height: 30px; outline: none;
+}
+.mb-card-content.quote {
+    font-family: var(--mb-font-handwritten);
+    font-size: 1.15em; font-style: italic; line-height: 1.5;
+}
+.mb-card-content.quote::before { content: '«'; opacity: 0.4; margin-right: 2px; }
+.mb-card-content.quote::after { content: '»'; opacity: 0.4; margin-left: 2px; }
+.mb-card-content img {
+    max-width: 100%; border-radius: 4px; display: block; margin: 4px 0;
+}
+.mb-card-actions {
+    display: none; position: absolute; top: -28px; right: 4px;
+    gap: 4px; z-index: 10;
+}
+.mb-card-actions::after {
+    content: ''; position: absolute; top: 100%; left: 0; right: 0; height: 10px;
+}
+@media (hover: hover) { .mb-card:hover .mb-card-actions { display: flex; } }
+/* A selected card shows its buttons on any device. Gating this behind
+   (hover: none) left touch-capable laptops with no way to reach them. */
+.mb-card.mb-touched .mb-card-actions { display: flex; }
+.mb-card.is-dragging .mb-card-actions { display: none !important; }
+.mb-card-act-btn {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--mb-bg-secondary); border: 1px solid var(--mb-border);
+    color: var(--mb-text-muted); cursor: pointer; display: flex; align-items: center;
+    justify-content: center; font-size: 0.7em; transition: 0.2s;
+}
+.mb-card-act-btn:hover { color: var(--mb-accent); border-color: var(--mb-accent); }
+.mb-card-act-btn.del:hover { color: #ef4444; border-color: #ef4444; }
+
+.mb-card.is-dragging {
+    opacity: 0.8 !important; z-index: 1000 !important; filter: none !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
+    /* The transform is written every frame from rAF — a transition on top of that
+       makes the card visibly lag behind and stutter under the finger. */
+    will-change: transform; transition: none !important;
+}
+.mb-card-resize {
+    position: absolute; bottom: 2px; right: 2px;
+    width: 14px; height: 14px; cursor: nwse-resize;
+    opacity: 0; transition: opacity 0.2s;
+    /* Invisible but still hit-testable, this quietly swallowed corner grabs and
+       began a resize instead of a drag — worst on stickers, where the handle
+       hangs outside the card. Only arm it once the card is active. */
+    pointer-events: none;
+}
+@media (hover: hover) { .mb-card:hover .mb-card-resize { opacity: 0.5; pointer-events: auto; } }
+.mb-card.mb-touched .mb-card-resize { opacity: 0.5; pointer-events: auto; }
+/* An open editor gets the caret and text selection back. */
+.mb-card.is-editing .mb-card-content { user-select: text; -webkit-user-select: text; cursor: text; }
+.mb-card.mb-touched { box-shadow: var(--mb-card-shadow), 0 0 0 2px var(--mb-accent); z-index: 99999; }
+.mb-card-resize::after {
+    content: ''; position: absolute; bottom: 2px; right: 2px;
+    width: 8px; height: 8px;
+    border-right: 2px solid var(--mb-card-text); border-bottom: 2px solid var(--mb-card-text);
+    opacity: 0.3;
+}
+.mb-card-color-strip {
+    height: 4px; border-radius: 6px 6px 0 0;
+}
+
+/* ===== SETTINGS PANEL ===== */
+.mb-settings-panel {
+    /* Anchored top *and* bottom rather than height:100%. The containing block
+       (.mb-canvas-area) is a flex item with no explicit height, and a percentage
+       height against that collapses to auto in some mobile browsers — the panel
+       then ends at its content instead of filling the screen. */
+    /* A flex column whose head never scrolls. The panel used to be one big
+       scrolling box, so its title bar — and the close button with it — slid out
+       of sight as soon as the content was taller than the screen. */
+    display: none; position: absolute; top: 0; bottom: 0; right: 0;
+    width: 280px; background: var(--mb-bg-primary);
+    border-left: 1px solid var(--mb-border); z-index: 50;
+    box-sizing: border-box; padding: 0;
+    flex-direction: column; overflow: hidden;
+    overscroll-behavior: contain;
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.mb-settings-panel.open { display: flex; }
+.mb-settings-panel > .mb-panel-head { flex: 0 0 auto; }
+.mb-panel-body {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 16px 18px 24px; box-sizing: border-box;
+}
+.mb-select-hint { font-size: 0.75em; color: var(--mb-text-muted); margin: 4px 0 8px; line-height: 1.45; }
+/* Same reason: give the flex column a definite height to resolve against. */
+.mb-canvas-area { min-height: 0; }
+.mb-settings-label { display: block; font-size: 0.82em; color: var(--mb-text-muted); margin-bottom: 6px; margin-top: 15px; }
+.mb-settings-label:first-child { margin-top: 0; }
+.mb-settings-select, .mb-settings-input {
+    background: var(--mb-bg-input); border: 1px solid var(--mb-border);
+    border-radius: 8px; color: var(--mb-text); padding: 8px 12px;
+    font-size: 0.85em; outline: none; width: 100%; box-sizing: border-box;
+}
+.mb-settings-btn {
+    width: 100%; padding: 10px; margin-top: 12px; border: none; border-radius: 8px;
+    background: var(--mb-accent); color: #000; font-weight: 600; font-size: 0.9em;
+    cursor: pointer; transition: 0.2s;
+}
+.mb-settings-btn:hover { filter: brightness(1.15); }
+.mb-settings-btn.secondary {
+    background: rgba(255,255,255,0.07); color: var(--mb-text);
+    border: 1px solid rgba(255,255,255,0.15);
+}
+.mb-settings-btn.danger { background: #dc2626; color: #fff; }
+.mb-settings-btn.danger:hover { background: #ef4444; }
+
+.mb-settings-select {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--mb-bg-primary);
+    border: 1px solid var(--mb-border);
+    border-radius: 6px;
+    color: var(--mb-text);
+    font-size: 0.9em;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: auto;
+    appearance: auto;
+}
+.mb-settings-select:focus { border-color: var(--mb-accent); }
+/* ===== TEXT SELECTION POPUP ===== */
+#mb-quote-popup {
+    display: none; position: fixed;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--mb-accent, #d4a574);
+    color: #000; font-size: 15px; font-weight: 700;
+    cursor: pointer; z-index: 9999999;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    align-items: center; justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s;
+    line-height: 1;
+    pointer-events: auto;
+    animation: mb-pop-in 0.2s ease-out;
+}
+#mb-quote-popup:hover { transform: scale(1.2); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+@keyframes mb-pop-in {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* ===== WAND MENU ICON ===== */
+.mb-wand-icon {
+    display: inline-block; width: 1.25em; height: 1.25em;
+    background-color: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Cline x1='8' y1='8' x2='8' y2='8.01'/%3E%3Cline x1='16' y1='8' x2='16' y2='8.01'/%3E%3Cline x1='12' y1='16' x2='12' y2='16.01'/%3E%3Cline x1='8' y1='16' x2='8' y2='16.01'/%3E%3C/svg%3E") no-repeat center / contain;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Cline x1='8' y1='8' x2='8' y2='8.01'/%3E%3Cline x1='16' y1='8' x2='16' y2='8.01'/%3E%3Cline x1='12' y1='16' x2='12' y2='16.01'/%3E%3Cline x1='8' y1='16' x2='8' y2='16.01'/%3E%3C/svg%3E") no-repeat center / contain;
+    vertical-align: middle;
+}
+
+/* ===== ZOOM INDICATOR ===== */
+.mb-zoom-indicator {
+    position: absolute; bottom: 12px; right: 12px;
+    background: var(--mb-bg-secondary); border: 1px solid var(--mb-border);
+    border-radius: 20px; padding: 4px 14px;
+    font-size: 0.78em; color: var(--mb-text-muted); z-index: 30;
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+}
+.mb-zoom-indicator.visible { opacity: 1; }
+
+/* ===== CHAT IMAGE PIN BUTTON ===== */
+.mb-chat-img-pin {
+    position: absolute; top: 6px; right: 6px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--mb-accent, rgba(212,165,116,0.95)); color: #000;
+    font-size: 20px; font-weight: 900; line-height: 28px;
+    text-align: center; cursor: pointer; z-index: 99999;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    opacity: 0; transition: opacity 0.2s, transform 0.15s;
+    pointer-events: auto;
+}
+.mb-chat-img-pin:hover { transform: scale(1.15); filter: brightness(1.1); }
+.mb-chat-img-pin:active { transform: scale(0.95); }
+
+/* ===== MOBILE ===== */
+@media (max-width: 768px) {
+    .mb-header { padding: 8px 10px; gap: 4px; flex-wrap: wrap; }
+    .mb-header-left { flex-wrap: wrap; gap: 6px; }
+    .mb-title { font-size: 0.95em; }
+    .mb-scope-btn { font-size: 0.7em; padding: 3px 8px; }
+    .mb-toolbar { padding: 6px 10px; gap: 4px; }
+    .mb-tool-btn { width: 30px; height: 30px; font-size: 0.82em; }
+    .mb-color-dot { width: 18px; height: 18px; }
+    /* Only a card that has never been sized. One with a width of its own says
+       exactly how big it wants to be — see .mb-card.has-size. */
+    .mb-card:not(.has-size) { max-width: 260px; min-width: 100px; }
+    .mb-settings-panel { width: 100%; }
+    /* #mb-ai-panel and #mb-custom-color-panel carry inline widths that beat the
+       rule above, leaving a dead sliver of board next to them on a phone. */
+    #mb-ai-panel, #mb-custom-color-panel { width: 100% !important; }
+    .mb-canvas-area { touch-action: none; -webkit-overflow-scrolling: auto; }
+
+    /* A full-viewport backdrop blur is recomposited on every pan/zoom frame and is
+       by far the most expensive thing on the page — and it is invisible anyway,
+       since .mb-shell covers the whole screen. Drop it on phones. */
+    #mb-modal { backdrop-filter: none; -webkit-backdrop-filter: none; background-color: #000 !important; }
+    .mb-settings-panel { backdrop-filter: none; -webkit-backdrop-filter: none; }
+    /* Tape's blur is per-card; with a dozen taped cards it costs more than it adds. */
+    .mb-card.shape-tape::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+    /* While a gesture is running, card shadows are the most expensive thing the
+       rasterizer has to redo tile by tile. They come back the moment it ends. */
+    .mb-canvas-area.is-panning .mb-card,
+    .mb-canvas-area.is-panning .mb-card.mb-touched,
+    .mb-canvas-area.is-panning .mb-card.is-dragging { box-shadow: none !important; }
+    .mb-canvas-area.is-panning .mb-card { transition: none !important; }
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes mb-card-drop {
+    0% { transform: scale(0.6) rotate(-5deg); opacity: 0; }
+    60% { transform: scale(1.05) rotate(1deg); opacity: 1; }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+/* No `forwards`: a filled animation keeps owning `transform` after it ends, and
+   animations outrank inline styles — which silently swallowed the drag
+   transform, so a freshly dropped card could not be seen to move at all. The
+   last keyframe equals the resting state anyway, so there is nothing to retain.
+   The class is also removed on animationend (see renderCard). */
+.mb-card-enter { animation: mb-card-drop 0.35s ease-out; }
+
+/* ===== NEW TOOLS & SHAPES ===== */
+.mb-color-picker {
+    width: 20px; height: 20px; padding: 0; border: 2px solid transparent; 
+    border-radius: 50%; cursor: pointer; background: transparent; overflow: hidden;
+    flex-shrink: 0; outline: none; transition: 0.2s;
+}
+.mb-color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+.mb-color-picker::-webkit-color-swatch { border: none; border-radius: 50%; }
+.mb-color-picker.active { border-color: var(--mb-accent); transform: scale(1.15); }
+
+/* Stickers Panel */
+#mb-stickers { padding-top: 10px; }
+.mb-sticker-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px;
+    max-height: calc(100vh - 120px); overflow-y: auto; padding-right: 5px;
+}
+.mb-sticker-item {
+    background: var(--mb-bg-secondary); border-radius: 8px; padding: 10px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: 0.2s; aspect-ratio: 1; border: 1px solid var(--mb-border);
+}
+.mb-sticker-item:hover { transform: scale(1.1); background: var(--mb-bg-input); }
+.mb-sticker-item img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* Sticker Cards on Board */
+.mb-card.is-sticker {
+    background: transparent !important; box-shadow: none !important; border: none !important;
+}
+.mb-card.is-sticker:hover { box-shadow: 0 0 0 2px var(--mb-accent) !important; }
+.mb-card.is-sticker .mb-card-content { padding: 0; }
+.mb-card.is-sticker::before, .mb-card.is-sticker::after { display: none !important; }
+.mb-card.is-sticker .mb-card-resize { right: -6px; bottom: -6px; }
+
+/* Shapes */
+.mb-card.shape-polaroid {
+    padding: 10px 10px 40px 10px; background: #fff !important;
+    border-radius: 2px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+}
+.mb-card.shape-polaroid .mb-card-color-strip { display: none; }
+.mb-card.shape-polaroid img { border-radius: 0 !important; }
+.mb-card.shape-polaroid .mb-card-content { display: flex; justify-content: center; padding: 0; }
+
+.mb-card.shape-circle {
+    border-radius: 50% !important;
+    width: 200px; height: 200px; padding: 0;
+}
+.mb-card.shape-circle .mb-card-color-strip, .mb-card.shape-circle .mb-card-pin { display: none; }
+.mb-card.shape-circle .mb-card-content-wrap {
+    width: 100%; height: 100%; padding: 0;
+    border-radius: 50%; overflow: hidden;
+}
+.mb-card.shape-circle img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 50% !important; display: block;
+}
+.mb-card.shape-circle .mb-card-content { padding: 0; width: 100%; height: 100%; }
+
+.mb-card.shape-tape { border-radius: 0; }
+.mb-card.shape-tape .mb-card-color-strip, .mb-card.shape-tape .mb-card-pin { display: none; }
+.mb-card.shape-tape::after {
+    content: ''; position: absolute; top: -10px; left: 50%; transform: translateX(-50%) rotate(-2deg);
+    width: 80px; height: 25px; background: rgba(255,255,255,0.4);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1); backdrop-filter: blur(2px);
+    clip-path: polygon(0 5%, 100% 0, 95% 95%, 5% 100%); z-index: 5;
+}
+
+.mb-card.shape-rounded { border-radius: 24px !important; }
+.mb-card.shape-rounded .mb-card-content { border-radius: 24px; }
+.mb-card.shape-rounded .mb-card-color-strip { display: none; }
+
+.mb-card.shape-torn {
+    border-radius: 0; background: transparent !important; box-shadow: none !important;
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.15));
+}
+.mb-card.shape-torn .mb-card-content {
+    background: var(--mb-card-bg);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), 95% 100%, 90% calc(100% - 8px), 85% 100%, 80% calc(100% - 5px), 75% 100%, 70% calc(100% - 9px), 65% 100%, 60% calc(100% - 5px), 55% 100%, 50% calc(100% - 10px), 45% 100%, 40% calc(100% - 6px), 35% 100%, 30% calc(100% - 9px), 25% 100%, 20% calc(100% - 4px), 15% 100%, 10% calc(100% - 8px), 5% 100%, 0 calc(100% - 10px));
+}
+.mb-card.shape-torn .mb-card-color-strip { display: none; }
+
+
+/* Stamp Shape */
+.mb-card.shape-stamp { border-radius: 8px !important; padding: 12px; background: #fff !important; }
+.mb-card.shape-stamp .mb-card-content, .mb-card.shape-stamp .mb-card-content-wrap, .mb-card.shape-stamp img { border: 3px dotted #999; border-radius: 4px !important; }
+.mb-card.shape-stamp .mb-card-color-strip { display: none; }
+
+/* Film Shape */
+.mb-card.shape-film { background: #111 !important; padding: 12px 0; border-radius: 4px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important; color: #fff; }
+.mb-card.shape-film .mb-card-content-wrap, .mb-card.shape-film .mb-card-content { border-top: 4px dashed #444; border-bottom: 4px dashed #444; padding: 8px 0; background: #111; border-radius: 0 !important; width: 100%; }
+.mb-card.shape-film img { border-radius: 0 !important; width: 100%; object-fit: cover; }
+.mb-card.shape-film .mb-card-color-strip, .mb-card.shape-film .mb-card-pin { display: none; }
+
+.mb-chat-img-pin.show-mobile { opacity: 1 !important; transform: scale(1.1); }
+
+/* Shape Menu */
+.mb-shape-menu {
+    position: absolute; bottom: 100%; left: 0; margin-bottom: 8px;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;
+    background: var(--mb-bg-secondary); padding: 8px; border-radius: 8px;
+    border: 1px solid var(--mb-border); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 105; min-width: 180px;
+}
+.mb-shape-btn {
+    padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; font-weight: 500; color: var(--mb-text);
+    transition: 0.2s; background: transparent; display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; justify-content: flex-start;
+}
+.mb-shape-btn:hover { background: rgba(255,255,255,0.1); }
+.mb-shape-btn.active { background: var(--mb-accent); }
+
+/* Custom Selects */
+.mb-custom-select {
+    position: relative; cursor: pointer;
+    background: var(--mb-bg-secondary); border: 1px solid var(--mb-border);
+    border-radius: 8px; padding: 6px 12px; font-size: 13px;
+    color: var(--mb-text); user-select: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.mb-custom-select::after { content: '▼'; font-size: 10px; margin-left: 6px; opacity: 0.7; }
+/* Positioned in JS while open (see placeSelectMenu) so it can never be pushed
+   off-screen or clipped by an ancestor; these are just the closed-state
+   defaults. */
+.mb-select-options {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--mb-bg-primary); border: 1px solid var(--mb-border);
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 140px; z-index: 200; overflow: hidden;
+}
+.mb-custom-select.open .mb-select-options { display: block; animation: mb-fade-in 0.15s ease-out; }
+.mb-select-options div { padding: 10px 14px; transition: 0.2s; white-space: nowrap; font-size: 13px; }
+.mb-select-options div:hover { background: var(--mb-accent); color: #000; }
+@keyframes mb-fade-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Custom Color Picker Sliders */
+#mb-hue-slider {
+    -webkit-appearance: none; height: 8px; border-radius: 4px; outline: none;
+    background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+#mb-hue-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 1px solid #ccc; cursor: pointer; }
+#mb-lightness-slider { -webkit-appearance: none; height: 8px; border-radius: 4px; outline: none; background: linear-gradient(to right, #000, #f00, #fff); }
+#mb-lightness-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 1px solid #ccc; cursor: pointer; }
+.mb-custom-color-btn { display: flex; align-items: center; justify-content: center; font-size: 12px; background: var(--mb-bg-input); border: 1px solid var(--mb-border); color: var(--mb-text); }
+
+/* ============================================================
+   CHROME TOKENS
+   The chip/hover washes used to be hardcoded white-on-dark, which
+   disappears entirely on a light theme. Each theme picks its own.
+   ============================================================ */
+:root, [data-mb-theme="cork"], [data-mb-theme="plum"],
+[data-mb-theme="forest"], [data-mb-theme="auto"] {
+    --mb-chip: rgba(255,255,255,0.07);
+    --mb-chip-strong: rgba(255,255,255,0.14);
+}
+[data-mb-theme="linen"], [data-mb-theme="ink"] {
+    --mb-chip: rgba(0,0,0,0.05);
+    --mb-chip-strong: rgba(0,0,0,0.11);
+}
+
+.mb-tool-btn { background: var(--mb-chip); }
+.mb-tool-btn.active { background: var(--mb-chip-strong); }
+.mb-scope-btn.active { background: var(--mb-chip); }
+.mb-settings-btn { background: var(--mb-accent); color: var(--mb-on-accent); }
+.mb-settings-btn.secondary { background: var(--mb-chip); border: 1px solid var(--mb-border); color: var(--mb-text); }
+.mb-settings-select, .mb-settings-input { color: var(--mb-text); }
+.mb-close:hover { color: var(--mb-accent); }
+.mb-card-act-btn { background: var(--mb-bg-secondary); color: var(--mb-text-muted); }
+.mb-select-options div:hover { background: var(--mb-accent); color: var(--mb-on-accent); }
+.mb-empty-hint, .empty-msg { color: var(--mb-text-muted); font-size: 0.85em; text-align: center; }
+.empty-msg { margin-top: 24px; line-height: 1.6; }
+
+/* Header icons: tinted rather than flat grey, and the AI button reads as primary. */
+.mb-icon-btn { color: var(--mb-text-muted); opacity: 0.85; }
+.mb-icon-btn:hover { color: var(--mb-accent); opacity: 1; }
+.mb-icon-btn.accent { color: var(--mb-accent); opacity: 1; font-size: 1.2em; }
+.mb-icon-btn.accent:hover { color: var(--mb-accent-hover); transform: scale(1.08); }
+.mb-icon-btn.mb-busy { opacity: 0.55; cursor: progress; }
+.mb-icon-btn.mb-busy i { animation: mb-spin 1s linear infinite; }
+.mb-icon-btn:disabled { cursor: progress; }
+/* Tool icons carry their own hue so the bar isn't a wall of grey. */
+.mb-tool-btn[data-tool="draw"] i { color: #7fb2e5; }
+.mb-tool-btn[data-tool="arrow"] i { color: #e5a87f; }
+.mb-tool-btn[data-tool="shape"] i { color: #8fcf99; }
+.mb-tool-btn[data-tool="eraser"] i { color: #e08f9c; }
+.mb-tool-btn[data-tool="text"] i { color: #d8bd6a; }
+.mb-tool-btn[data-tool="image"] i { color: #b9a3dd; }
+.mb-tool-btn[data-tool="select"] i { color: var(--mb-text-muted); }
+#mb-btn-stickers i { color: #f0b957; }
+.mb-tool-btn.active i { color: var(--mb-accent); }
+
+/* ===== COLLAPSIBLE TOOLBAR ===== */
+.mb-shell { position: relative; }
+.mb-header { order: 1; }
+.mb-toolbar { order: 2; max-height: 240px; transition: max-height 0.22s ease, padding 0.22s ease, opacity 0.18s ease; }
+.mb-toolbar.collapsed {
+    max-height: 0; padding-top: 0; padding-bottom: 0;
+    opacity: 0; overflow: hidden; border-bottom-width: 0; pointer-events: none;
+}
+/* Full-width strip on purpose: a centred pill left the rest of its flex row
+   transparent, so the modal's dark backdrop showed through as a black band. */
+.mb-toolbar-toggle {
+    order: 3; position: relative; z-index: 11;
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; margin: 0; padding: 3px 0 4px;
+    background: var(--mb-bg-primary); color: var(--mb-text-muted);
+    border: none; border-bottom: 1px solid var(--mb-border);
+    cursor: pointer; font-size: 0.7em; line-height: 1;
+    transition: color 0.2s, background 0.2s; flex-shrink: 0;
+}
+.mb-toolbar-toggle::before,
+.mb-toolbar-toggle::after {
+    content: ''; width: 26px; height: 2px; border-radius: 2px;
+    background: var(--mb-border); margin: 0 10px;
+}
+.mb-toolbar-toggle:hover { color: var(--mb-accent); background: var(--mb-bg-secondary); }
+.mb-canvas-area { order: 4; }
+.mb-color-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ===== SHAPE PICKER (long-press) ===== */
+.mb-shape-picker {
+    display: none; position: fixed; z-index: 1000000;
+    background: var(--mb-bg-secondary); border: 1px solid var(--mb-border);
+    border-radius: 10px; padding: 6px; gap: 4px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    grid-template-columns: repeat(4, 1fr);
+}
+.mb-shape-picker.open { display: grid; }
+.mb-shape-opt {
+    width: 38px; height: 38px; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--mb-text-muted); background: var(--mb-chip); transition: 0.15s;
+}
+.mb-shape-opt:hover { color: var(--mb-accent); background: var(--mb-chip-strong); }
+.mb-shape-opt.active { color: var(--mb-on-accent); background: var(--mb-accent); }
+/* The triangle is a rotated play glyph. */
+.mb-shape-opt [class*="fa-play"] { transform: rotate(-90deg); }
+.mb-tool-btn [class*="fa-play"] { transform: rotate(-90deg); }
+
+/* ===== PANELS ===== */
+.mb-settings-panel { color: var(--mb-text); }
+.mb-panel-left { right: auto; left: 0; border-left: none; border-right: 1px solid var(--mb-border); }
+/* Flush panels manage their own scrolling; the outer panel must not also scroll,
+   or long content slides underneath the sticky header. */
+#mb-ai-panel { right: 0; width: 340px; }
+#mb-frame-panel { width: 280px; }
+.mb-panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 14px; flex-shrink: 0;
+    background: var(--mb-bg-secondary); border-bottom: 1px solid var(--mb-border);
+}
+.mb-panel-head strong { color: var(--mb-accent); font-size: 0.95em; font-weight: 600; letter-spacing: 0.3px; }
+.mb-panel-close { cursor: pointer; color: var(--mb-text-muted); font-size: 1em; padding: 2px 6px; }
+.mb-panel-close:hover { color: var(--mb-accent); }
+#mb-ai-history {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px;
+    background: var(--mb-bg-primary); overscroll-behavior: contain;
+}
+.mb-ai-msg {
+    background: var(--mb-chip); border: 1px solid var(--mb-border);
+    border-radius: 10px; padding: 10px 12px;
+    font-size: 0.9em; line-height: 1.55; color: var(--mb-text);
+}
+.mb-ai-msg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.mb-ai-msg-name { color: var(--mb-accent); font-weight: 600; font-family: var(--mb-font-handwritten); font-size: 1.2em; }
+.mb-ai-msg-body { word-break: break-word; }
+/* Formatter output brings its own paragraphs, so pre-wrap would double the gaps. */
+.mb-rich { white-space: normal; }
+.mb-rich p { margin: 0 0 0.6em; }
+.mb-rich p:last-child { margin-bottom: 0; }
+.mb-rich em { font-style: italic; opacity: 0.92; }
+.mb-rich strong { font-weight: 700; }
+.mb-rich q, .mb-rich .q { color: var(--mb-accent); font-style: normal; quotes: none; }
+.mb-rich code {
+    font-family: 'Courier New', monospace; font-size: 0.9em;
+    background: var(--mb-chip-strong); padding: 1px 5px; border-radius: 4px;
+}
+.mb-rich pre { background: var(--mb-chip-strong); padding: 8px 10px; border-radius: 7px; overflow-x: auto; }
+.mb-rich blockquote {
+    margin: 0.5em 0; padding: 2px 0 2px 10px;
+    border-left: 3px solid var(--mb-accent); opacity: 0.88;
+}
+.mb-rich del { opacity: 0.6; }
+.mb-rich hr { border: none; border-top: 1px solid var(--mb-border); margin: 0.7em 0; }
+.mb-rich img { max-width: 100%; border-radius: 6px; }
+.mb-del-ai-msg { cursor: pointer; color: #ef4444; opacity: 0.6; transition: 0.2s; font-size: 0.85em; }
+.mb-del-ai-msg:hover { opacity: 1; }
+
+/* ===== SAVED COLORS ===== */
+.mb-saved-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.mb-saved-dot {
+    width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+    border: 2px solid var(--mb-border); transition: 0.15s;
+}
+.mb-saved-dot:hover { transform: scale(1.12); border-color: var(--mb-accent); }
+
+/* ===== STYLE PANEL (frames / fonts / size) ===== */
+.mb-frame-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mb-frame-opt {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 4px; border-radius: 8px; cursor: pointer;
+    background: var(--mb-chip); border: 1px solid transparent;
+    color: var(--mb-text-muted); font-size: 0.68em; text-align: center; transition: 0.15s;
+}
+.mb-frame-opt i { font-size: 1.3em; }
+.mb-frame-opt:hover { background: var(--mb-chip-strong); color: var(--mb-text); }
+.mb-frame-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); background: var(--mb-chip-strong); }
+.mb-font-list { display: flex; flex-direction: column; gap: 4px; }
+.mb-font-opt {
+    padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: 0.95em;
+    background: var(--mb-chip); color: var(--mb-text); border: 1px solid transparent; transition: 0.15s;
+}
+.mb-font-opt:hover { background: var(--mb-chip-strong); }
+.mb-font-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); }
+/* Grid, not flex: six equal columns that can actually shrink. As flex items with
+   a min-width they refused to compress and pushed past the panel edge. */
+.mb-size-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.mb-size-row.mb-align-row { grid-template-columns: repeat(3, 1fr); }
+.mb-size-opt {
+    min-width: 0; text-align: center; overflow: hidden;
+    padding: 8px 2px; border-radius: 7px; cursor: pointer; font-size: 0.78em;
+    background: var(--mb-chip); color: var(--mb-text); border: 1px solid transparent; transition: 0.15s;
+}
+.mb-size-opt:hover { background: var(--mb-chip-strong); }
+.mb-size-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); }
+
+/* ===== NEW CARD FRAMES ===== */
+.mb-card.shape-gold {
+    border: 5px solid transparent; border-radius: 3px !important;
+    background-image: linear-gradient(var(--mb-card-bg), var(--mb-card-bg)),
+                      linear-gradient(135deg, #a97c1e, #ffe9a8 25%, #c9a227 50%, #fff3c4 75%, #a97c1e);
+    background-origin: border-box; background-clip: padding-box, border-box;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35) !important;
+}
+.mb-card.shape-gold .mb-card-color-strip, .mb-card.shape-gold .mb-card-pin { display: none; }
+
+.mb-card.shape-double {
+    border: 1px solid var(--mb-card-text); border-radius: 2px !important;
+    outline: 1px solid var(--mb-card-text); outline-offset: 4px;
+    padding: 5px;
+}
+.mb-card.shape-double .mb-card-color-strip { display: none; }
+
+/* Lined-paper note. Built from plain background gradients rather than a mask,
+   so it survives PNG export intact. */
+.mb-card.shape-notebook {
+    border-radius: 2px !important;
+    background-color: var(--mb-card-bg) !important;
+    background-image:
+        linear-gradient(to right, transparent 26px, rgba(210,90,90,0.45) 26px, rgba(210,90,90,0.45) 27px, transparent 27px),
+        repeating-linear-gradient(to bottom, transparent 0 25px, rgba(70,110,160,0.28) 25px 26px);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important;
+}
+.mb-card.shape-notebook .mb-card-content { padding-left: 34px; }
+.mb-card.shape-notebook .mb-card-color-strip { display: none; }
+
+.mb-card.shape-shadowbox {
+    border: 1px solid var(--mb-border); border-radius: 2px !important; padding: 12px;
+    box-shadow: 8px 8px 0 rgba(0,0,0,0.28) !important;
+}
+.mb-card.shape-shadowbox .mb-card-color-strip { display: none; }
+
+.mb-card.shape-washi { border-radius: 2px !important; }
+.mb-card.shape-washi .mb-card-pin { display: none; }
+.mb-card.shape-washi::before, .mb-card.shape-washi::after {
+    content: ''; position: absolute; top: -9px;
+    width: 54px; height: 20px; z-index: 6;
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 6px, rgba(205,185,228,0.6) 6px 12px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+}
+.mb-card.shape-washi::before { left: -12px; transform: rotate(-28deg); }
+.mb-card.shape-washi::after { right: -12px; transform: rotate(28deg); }
+
+.mb-card.shape-ticket {
+    border-radius: 0 !important; background: transparent !important; box-shadow: none !important;
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.28));
+}
+.mb-card.shape-ticket .mb-card-content {
+    background: var(--mb-card-bg); padding: 16px 24px;
+    -webkit-mask: radial-gradient(circle at 0 50%, transparent 11px, #000 11.5px),
+                  radial-gradient(circle at 100% 50%, transparent 11px, #000 11.5px);
+    -webkit-mask-composite: source-in;
+    mask: radial-gradient(circle at 0 50%, transparent 11px, #000 11.5px),
+          radial-gradient(circle at 100% 50%, transparent 11px, #000 11.5px);
+    mask-composite: intersect;
+}
+.mb-card.shape-ticket .mb-card-color-strip, .mb-card.shape-ticket .mb-card-pin { display: none; }
+
+.mb-card.shape-postit {
+    background: linear-gradient(160deg, #fff8a8, #ffe97a) !important;
+    border-radius: 0 0 0 26px !important;
+    box-shadow: 3px 5px 12px rgba(0,0,0,0.3) !important;
+    transform: rotate(-1.2deg);
+}
+.mb-card.shape-postit .mb-card-content { color: #4a3f10; }
+.mb-card.shape-postit .mb-card-color-strip, .mb-card.shape-postit .mb-card-pin { display: none; }
+
+/* ===== LONG-PRESS BELONGS TO US =====
+   Holding a card starts a selection. Android would otherwise pop its own
+   "save image / search image" sheet over the top, and the browser would begin a
+   text selection — both on the same gesture. */
+.mb-card, .mb-card * {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+}
+/* The card itself was covered, but the browser's selection engine does not stop
+   at the element under the finger: finding nothing selectable there, Yandex on
+   Android reaches for the nearest text on the board and lands on the zoom
+   readout — which is why a long press offered to search the web for "37".
+   `pointer-events: none` does not help, selection ignores it. So the whole board
+   chrome is off limits to text selection, and only the places where selecting
+   text is the point get it back. */
+.mb-canvas-area, .mb-header, .mb-toolbar, .mb-tabs, .mb-zoom-indicator,
+.mb-shape-picker, .mb-brush-panel {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+/* Panels are for reading: an insight is worth copying out of. */
+.mb-settings-panel, .mb-dialog {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.mb-card img, .mb-collage-cell img {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    pointer-events: none;   /* the card handles the gesture, not the picture */
+}
+/* An open editor still needs its caret and selection. */
+.mb-card.is-editing .mb-card-content,
+.mb-card .mb-card-content[contenteditable="true"],
+.mb-booth-caption[contenteditable="true"] {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* ===== BUSY OVERLAY ===== */
+.mb-busy-overlay {
+    display: none; position: fixed; left: 0; width: 100vw;
+    top: var(--mb-vtop, 0px); height: var(--mb-vh, 100dvh);
+    z-index: 1000003; flex-direction: column; gap: 18px;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.82); color: #fff;
+}
+.mb-busy-overlay i { font-size: 2.4em; color: var(--mb-accent); }
+.mb-busy-text { font-family: var(--mb-font-handwritten); font-size: 1.5em; }
+
+/* ===== EXPORT QUALITY DIALOG ===== */
+/* Immediate feedback on the tapped option, before the render takes over. */
+.mb-export-opt.chosen {
+    border-color: var(--mb-accent); background: var(--mb-chip-strong);
+    transform: scale(0.98);
+}
+.mb-export-list { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+.mb-export-opt {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 11px 12px; border-radius: 9px; cursor: pointer;
+    background: var(--mb-chip); border: 1px solid transparent; transition: 0.15s;
+}
+.mb-export-opt:hover { background: var(--mb-chip-strong); border-color: var(--mb-accent); }
+.mb-export-opt b { font-size: 0.92em; color: var(--mb-text); }
+.mb-export-opt span { font-size: 0.75em; color: var(--mb-accent); }
+.mb-export-opt em { font-style: normal; font-size: 0.72em; color: var(--mb-text-muted); line-height: 1.4; }
+
+/* Insight snapshots are worth a bit more room now they are rendered larger. */
+.mb-ai-shot img { max-height: 220px; }
+
+/* ===== BOARD TABS ===== */
+.mb-tabs {
+    order: 2; display: flex; align-items: stretch; gap: 4px;
+    padding: 6px 10px 0; flex-shrink: 0;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    background: var(--mb-bg-secondary);
+    border-bottom: 1px solid var(--mb-border);
+}
+.mb-tabs::-webkit-scrollbar { display: none; }
+.mb-tab {
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    max-width: 190px; padding: 7px 11px; cursor: pointer;
+    border-radius: 9px 9px 0 0; font-size: 0.78em;
+    color: var(--mb-text-muted); background: var(--mb-chip);
+    border: 1px solid transparent; border-bottom: none;
+    transition: 0.15s; user-select: none;
+}
+.mb-tab:hover { color: var(--mb-text); background: var(--mb-chip-strong); }
+.mb-tab.active {
+    color: var(--mb-accent); background: var(--mb-bg-primary);
+    border-color: var(--mb-border); font-weight: 600;
+}
+.mb-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-tab-edit, .mb-tab-del { font-size: 0.85em; opacity: 0.55; flex-shrink: 0; }
+.mb-tab-edit:hover { opacity: 1; }
+.mb-tab-del:hover { opacity: 1; color: #ef4444; }
+.mb-tab-add { padding: 7px 12px; color: var(--mb-text-muted); }
+/* The toolbar sits under the tabs, so shift everything below it down one slot. */
+.mb-toolbar { order: 3; }
+.mb-toolbar-toggle { order: 4; }
+.mb-select-bar { order: 5; }
+.mb-canvas-area { order: 6; }
+
+/* ===== QUICK STYLE PICKER ===== */
+.mb-ai-note {
+    width: 100%; box-sizing: border-box; resize: vertical; margin-top: 2px;
+    background: var(--mb-bg-input); color: var(--mb-text);
+    border: 1px solid var(--mb-border); border-radius: 8px;
+    padding: 8px 10px; font-size: 0.85em; font-family: inherit; outline: none;
+}
+.mb-ai-note:focus { border-color: var(--mb-accent); }
+.mb-note-clear {
+    width: 100%; margin-top: 6px; padding: 6px; cursor: pointer;
+    background: var(--mb-chip); color: var(--mb-text-muted);
+    border: 1px solid var(--mb-border); border-radius: 7px;
+    font-size: 0.75em; font-family: inherit;
+}
+.mb-note-clear:hover { color: var(--mb-text); }
+/* A pending note is easy to forget about, so the send button carries a dot. */
+.mb-icon-btn.has-note { position: relative; }
+.mb-icon-btn.has-note::after {
+    content: ''; position: absolute; top: 1px; right: 1px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #4ade80; box-shadow: 0 0 0 2px var(--mb-bg-secondary);
+}
+#mb-style-picker { width: 300px; }
+.mb-style-list { display: flex; flex-direction: column; gap: 4px; }
+.mb-style-opt {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer;
+    background: var(--mb-chip); border: 1px solid transparent;
+    color: var(--mb-text); transition: 0.15s;
+}
+.mb-style-opt i { flex: 0 0 16px; margin-top: 2px; opacity: 0.85; }
+.mb-style-opt span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mb-style-opt b { font-size: 0.86em; font-weight: 600; }
+.mb-style-opt em { font-style: normal; font-size: 0.72em; color: var(--mb-text-muted); line-height: 1.35; }
+.mb-style-opt:hover { background: var(--mb-chip-strong); }
+.mb-style-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); }
+.mb-style-opt.active em { color: inherit; opacity: 0.75; }
+#mb-select-style { max-width: 46%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* ===== GROUP CHAT: WHO ANSWERS ===== */
+.mb-speaker-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+.mb-speaker-opt {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; border-radius: 14px; cursor: pointer;
+    font-size: 0.8em; color: var(--mb-text-muted);
+    background: var(--mb-chip); border: 1px solid transparent; transition: 0.15s;
+}
+.mb-speaker-opt i { font-size: 0.85em; opacity: 0.8; }
+.mb-speaker-opt:hover { color: var(--mb-text); background: var(--mb-chip-strong); }
+.mb-speaker-opt.active { color: var(--mb-accent); border-color: var(--mb-accent); }
+.mb-speaker-list .mb-select-hint { flex: 1 1 100%; }
+
+/* Send button sits beside the reply box. */
+.mb-reply-send { margin-top: 6px; }
+
+/* ===== SERVER SYNC INDICATOR ===== */
+.mb-sync-line { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.78em; color: var(--mb-text-muted); }
+.mb-sync {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: #4ade80; transition: background 0.25s, opacity 0.25s; opacity: 0.5;
+}
+.mb-sync[data-state="saving"] { background: var(--mb-accent); opacity: 1; animation: mb-sync-pulse 0.9s ease-in-out infinite; }
+.mb-sync[data-state="error"] { background: #ef4444; opacity: 1; }
+@keyframes mb-sync-pulse { 50% { opacity: 0.25; } }
+
+/* ===== SELECTION MODE ===== */
+.mb-select-bar {
+    display: none; order: 3; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 9px 14px; flex-shrink: 0;
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-secondary), var(--mb-bg-secondary));
+    border-bottom: 1px solid var(--mb-accent);
+    color: var(--mb-text); font-size: 0.88em;
+    /* Nothing in this bar is meant to be selectable: the same long-press that
+       starts a selection would otherwise leave the browser highlighting the
+       counter's digits. */
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    box-sizing: border-box; max-width: 100%;
+}
+.mb-select-bar.open { display: flex; }
+.mb-select-bar b { color: var(--mb-accent); font-size: 1.1em; }
+.mb-select-info { flex: 0 0 auto; white-space: nowrap; }
+.mb-select-acts { display: flex; gap: 7px; min-width: 0; }
+.mb-select-btn {
+    padding: 7px 13px; border-radius: 8px; cursor: pointer;
+    font-size: 0.9em; font-weight: 600; font-family: inherit;
+    border: 1px solid transparent; background: var(--mb-accent); color: var(--mb-on-accent);
+    transition: 0.15s; white-space: nowrap;
+}
+.mb-select-btn:hover { filter: brightness(1.1); }
+.mb-select-btn.ghost { background: var(--mb-chip); color: var(--mb-text); border-color: var(--mb-border); }
+/* Unpicked cards fade back so the choice reads at a glance. */
+.mb-canvas-area.mb-selecting .mb-card { opacity: 0.32; transition: opacity 0.15s, box-shadow 0.15s; }
+.mb-canvas-area.mb-selecting .mb-card.mb-picked { opacity: 1; }
+.mb-canvas-area.mb-selecting .mb-card.mb-picked::after {
+    content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-weight: 900;
+    position: absolute; top: -10px; left: -10px; z-index: 30;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--mb-accent); color: var(--mb-on-accent);
+    font-size: 11px; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+.mb-canvas-area.mb-selecting .mb-card.mb-picked { box-shadow: 0 0 0 3px var(--mb-accent) !important; }
+.mb-canvas-area.mb-selecting .mb-card-actions { display: none !important; }
+
+/* The bar has to hold a style chip whose label runs as long as "Реакция всех".
+   Squeezed onto one line on a phone it truncated the chip to something
+   meaningless and pushed "Отмена" clean off the screen, so the buttons get a row
+   of their own. This block sits after the rules above on purpose — the mobile
+   section higher up in the file would lose to them. */
+@media (max-width: 768px) {
+    .mb-select-bar { flex-wrap: wrap; gap: 6px 8px; padding: 8px 10px; }
+    .mb-select-info { flex: 1 1 100%; }
+    .mb-select-acts { flex: 1 1 100%; gap: 6px; }
+    .mb-select-btn { padding: 8px 10px; font-size: 0.85em; }
+    /* The chip takes whatever is left over after the two fixed-width buttons. */
+    #mb-select-style {
+        flex: 1 1 auto; max-width: none; min-width: 0;
+        text-align: left; overflow: hidden;
+    }
+    #mb-style-chip {
+        display: inline-block; max-width: 100%; vertical-align: bottom;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #mb-select-send, #mb-select-cancel { flex: 0 0 auto; }
+}
+
+/* Snapshot of what was sent, shown with the reply. */
+.mb-ai-shot { position: relative; margin: 2px 0 8px; }
+.mb-ai-shot img {
+    max-width: 100%; max-height: 150px; display: block;
+    border-radius: 8px; border: 1px solid var(--mb-border);
+}
+.mb-ai-shot-tag {
+    position: absolute; left: 6px; bottom: 6px;
+    background: var(--mb-accent); color: var(--mb-on-accent);
+    font-size: 0.62em; font-weight: 600; padding: 2px 7px; border-radius: 9px;
+}
+
+/* ===== NO FRAME =====
+   Strips the card down to just its contents: bare photo, or bare text on the
+   board. The selection ring is re-applied afterwards, since killing box-shadow
+   would otherwise leave no way to see what is selected. */
+.mb-card.shape-none {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    filter: none !important;
+}
+.mb-card.shape-none .mb-card-color-strip,
+.mb-card.shape-none .mb-card-pin { display: none !important; }
+.mb-card.shape-none::before, .mb-card.shape-none::after { display: none !important; }
+.mb-card.shape-none .mb-card-content { padding: 0; background: transparent; }
+.mb-card.shape-none .mb-card-content-wrap { background: transparent; }
+.mb-card.shape-none img { border-radius: 0 !important; }
+@media (hover: hover) {
+    .mb-card.shape-none:hover { box-shadow: 0 0 0 2px var(--mb-accent) !important; }
+}
+.mb-card.shape-none.mb-touched { box-shadow: 0 0 0 2px var(--mb-accent) !important; }
+
+/* ===== TEXT COLOUR ROW ===== */
+.mb-textcolor { display: flex; flex-wrap: wrap; gap: 7px; }
+.mb-tc-swatch {
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    border: 2px solid var(--mb-border); transition: 0.15s;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7em; color: var(--mb-text-muted);
+}
+.mb-tc-swatch:hover { transform: scale(1.12); border-color: var(--mb-accent); }
+.mb-tc-swatch.active { border-color: var(--mb-accent); box-shadow: 0 0 0 2px var(--mb-chip-strong); }
+.mb-tc-auto, .mb-tc-more { background: var(--mb-chip); }
+
+/* ===== COLOUR PICKER DIALOG ===== */
+.mb-color-dialog { max-width: 320px; }
+.mb-cp-preview {
+    height: 60px; border-radius: 10px; margin: 14px 0 10px;
+    border: 1px solid var(--mb-border);
+    box-shadow: inset 0 1px 6px rgba(0,0,0,0.25);
+}
+.mb-cp-hex { margin-top: 0 !important; text-align: center; letter-spacing: 1px; text-transform: lowercase; }
+.mb-cp-row { display: flex; align-items: center; gap: 9px; margin-top: 10px; }
+.mb-cp-row span { flex: 0 0 58px; font-size: 0.72em; color: var(--mb-text-muted); }
+.mb-cp-row input[type="range"] {
+    flex: 1 1 auto; min-width: 0; -webkit-appearance: none; appearance: none;
+    height: 12px; border-radius: 6px; outline: none;
+    border: 1px solid var(--mb-border);
+}
+.mb-cp-row input.mb-cp-h {
+    background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.mb-cp-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 2px solid rgba(0,0,0,0.35); cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.mb-cp-row input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; border: 2px solid rgba(0,0,0,0.35); cursor: pointer;
+}
+.mb-cp-saved { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 14px; }
+.mb-cp-saved-label { flex: 0 0 100%; font-size: 0.7em; color: var(--mb-text-muted); }
+
+/* ===== THEME EDITOR ===== */
+.mb-theme-list { display: flex; flex-direction: column; gap: 4px; }
+.mb-theme-row {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 6px 8px; border-radius: 8px; background: var(--mb-chip);
+}
+.mb-theme-row:hover { background: var(--mb-chip-strong); }
+.mb-theme-swatch {
+    width: 34px; height: 28px; flex: 0 0 auto; border-radius: 6px;
+    border: 1px solid var(--mb-border);
+}
+.mb-theme-name { flex: 1 1 auto; font-size: 0.83em; color: var(--mb-text); }
+.mb-theme-row code { font-size: 0.72em; color: var(--mb-text-muted); }
+.mb-theme-bg { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.mb-theme-bg-prev {
+    width: 52px; height: 40px; flex: 0 0 auto; border-radius: 7px;
+    border: 1px solid var(--mb-border); background-size: cover; background-position: center;
+}
+.mb-theme-load { cursor: pointer; color: var(--mb-text-muted); font-size: 0.85em; padding: 3px; }
+.mb-theme-load:hover { color: var(--mb-accent); }
+
+/* ===== COLLAGES ===== */
+.mb-card.is-collage { padding: 0; background: var(--mb-card-bg); }
+.mb-card.is-collage .mb-card-color-strip { display: none; }
+.mb-collage { display: grid; gap: 3px; width: 100%; }
+.mb-collage-cell {
+    position: relative; overflow: hidden; background: rgba(0,0,0,0.18);
+    display: flex; align-items: center; justify-content: center;
+}
+.mb-collage-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mb-cell-empty { color: var(--mb-text-muted); opacity: 0.5; font-size: 1.1em; }
+.mb-card.mb-touched .mb-collage-cell { cursor: copy; }
+.mb-card.mb-touched .mb-collage-cell:hover { outline: 2px solid var(--mb-accent); outline-offset: -2px; }
+
+/* Photo-booth strip: white surround plus a caption band at the foot. */
+.mb-card.is-collage:has(.is-booth) { background: #fff !important; padding: 9px 9px 0; }
+.mb-collage.is-booth { gap: 6px; }
+.mb-booth-caption {
+    background: #fff; color: #2b2b2b; text-align: center;
+    font-family: var(--mb-font-handwritten); font-size: 1.15em;
+    padding: 7px 8px 11px; min-height: 1em; outline: none; word-break: break-word;
+}
+.mb-booth-caption:empty::before { content: 'подпись…'; opacity: 0.35; }
+
+/* Film strip: black body with sprocket holes top and bottom. */
+.mb-card.is-collage:has(.is-strip) { background: #141414 !important; padding: 13px 6px; }
+.mb-collage.is-strip { gap: 4px; }
+.mb-card.is-collage:has(.is-strip)::before,
+.mb-card.is-collage:has(.is-strip)::after {
+    content: ''; position: absolute; left: 6px; right: 6px; height: 7px;
+    background: repeating-linear-gradient(to right, #f2f2f2 0 6px, transparent 6px 13px);
+    border-radius: 1px;
+}
+.mb-card.is-collage:has(.is-strip)::before { top: 3px; }
+.mb-card.is-collage:has(.is-strip)::after { bottom: 3px; }
+
+.mb-collage-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.mb-collage-grid .mb-brush-opt em {
+    font-style: normal; font-size: 0.85em; opacity: 0.65;
+}
+
+/* ===== DIALOGS ===== */
+.mb-dialog-back {
+    /* Pinned to the visible viewport, not the layout one — with the keyboard up
+       `inset: 0` puts the top of this box above the screen and the dialog drifts
+       off the top edge, exactly as the modal used to. */
+    position: fixed; left: 0; width: 100vw;
+    top: var(--mb-vtop, 0px); height: var(--mb-vh, 100dvh);
+    z-index: 1000002;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    animation: mb-fade-in 0.15s ease-out;
+}
+.mb-dialog {
+    width: 100%; max-width: 340px; border-radius: 16px; overflow: hidden;
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-primary), var(--mb-bg-primary));
+    border: 1px solid var(--mb-border);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    padding: 20px; box-sizing: border-box;
+    animation: mb-dialog-in 0.18s cubic-bezier(0.2,0.9,0.3,1);
+}
+@keyframes mb-dialog-in { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.mb-dialog-title {
+    font-size: 1.15em; font-weight: 600; color: var(--mb-accent);
+    font-family: var(--mb-font-handwritten); letter-spacing: 0.3px;
+}
+.mb-dialog-text { margin-top: 8px; font-size: 0.85em; color: var(--mb-text-muted); line-height: 1.5; }
+.mb-dialog-input {
+    width: 100%; box-sizing: border-box; margin-top: 14px;
+    background: var(--mb-bg-input); color: var(--mb-text);
+    border: 1px solid var(--mb-border); border-radius: 9px;
+    padding: 11px 12px; font-size: 0.95em; font-family: inherit; outline: none;
+}
+.mb-dialog-input:focus { border-color: var(--mb-accent); }
+.mb-dialog-btns { display: flex; gap: 8px; margin-top: 18px; }
+.mb-dialog-btn {
+    flex: 1 1 0; padding: 11px; border-radius: 9px; cursor: pointer;
+    font-size: 0.9em; font-weight: 600; font-family: inherit;
+    border: 1px solid var(--mb-border); transition: 0.15s;
+}
+.mb-dialog-btn.cancel { background: var(--mb-chip); color: var(--mb-text); }
+.mb-dialog-btn.cancel:hover { background: var(--mb-chip-strong); }
+.mb-dialog-btn.ok { background: var(--mb-accent); color: var(--mb-on-accent); border-color: transparent; }
+.mb-dialog-btn.ok:hover { filter: brightness(1.1); }
+.mb-dialog-btn.ok.danger { background: #dc2626; color: #fff; }
+.mb-dialog-btn.ok.danger:hover { background: #ef4444; }
+
+/* ===== USER FRAME / FONT LISTS ===== */
+.mb-custom-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.mb-custom-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 9px; border-radius: 8px;
+    background: var(--mb-chip); border: 1px solid var(--mb-border);
+}
+.mb-custom-prev {
+    width: 34px; height: 34px; flex: 0 0 auto;
+    border-style: solid; background: transparent;
+}
+.mb-custom-col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mb-custom-name {
+    flex: 1 1 auto; min-width: 0; font-size: 0.85em; color: var(--mb-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mb-custom-sub { font-size: 0.7em; color: var(--mb-text-muted); }
+.mb-mode-toggle {
+    color: var(--mb-accent); cursor: pointer; text-decoration: underline dotted;
+}
+.mb-custom-prev { background-repeat: no-repeat; }
+.mb-custom-tune { display: flex; align-items: center; gap: 7px; font-size: 0.75em; color: var(--mb-text-muted); }
+.mb-custom-tune i { cursor: pointer; padding: 3px; }
+.mb-custom-tune i:hover { color: var(--mb-accent); }
+.mb-custom-tune b { min-width: 20px; text-align: center; color: var(--mb-text); }
+.mb-custom-del { cursor: pointer; color: #ef4444; opacity: 0.65; font-size: 0.85em; padding: 3px; }
+.mb-custom-del:hover { opacity: 1; }
+/* Preview swatch inside the style panel's frame grid. */
+.mb-frame-thumb {
+    display: block; width: 30px; height: 24px;
+    border-width: 9px; border-style: solid; background: transparent;
+}
+
+/* ===== INSIGHT THREADS, FOLDERS, ACTIONS ===== */
+.mb-folder-bar {
+    display: flex; gap: 6px; flex-wrap: wrap; flex: 0 0 auto;
+    padding: 8px 12px; border-bottom: 1px solid var(--mb-border);
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-secondary), var(--mb-bg-secondary));
+}
+.mb-folder-chip {
+    padding: 4px 10px; border-radius: 14px; cursor: pointer;
+    font-size: 0.75em; color: var(--mb-text-muted);
+    background: var(--mb-chip); border: 1px solid transparent; transition: 0.15s;
+    display: flex; align-items: center; gap: 5px;
+}
+.mb-folder-chip:hover { color: var(--mb-text); background: var(--mb-chip-strong); }
+.mb-folder-chip.active { color: var(--mb-accent); border-color: var(--mb-accent); }
+
+.mb-ai-acts { display: flex; gap: 10px; align-items: center; }
+.mb-ai-acts i {
+    cursor: pointer; font-size: 0.85em; color: var(--mb-text-muted);
+    opacity: 0.75; transition: 0.15s;
+}
+.mb-ai-acts i:hover { opacity: 1; color: var(--mb-accent); }
+.mb-ai-acts .act-del:hover { color: #ef4444; }
+.mb-folder-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.7em; color: var(--mb-accent);
+    background: var(--mb-chip); border-radius: 10px;
+    padding: 2px 8px; margin-bottom: 6px;
+}
+
+.mb-thread { display: flex; flex-direction: column; gap: 8px; }
+.mb-thread:not(:empty) { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--mb-border); }
+.mb-thread-msg { border-left: 2px solid var(--mb-border); padding-left: 9px; }
+.mb-thread-msg.is-user { border-left-color: var(--mb-accent); }
+.mb-thread-who {
+    display: block; font-size: 0.72em; font-weight: 600;
+    color: var(--mb-text-muted); margin-bottom: 2px;
+}
+.mb-thread-msg.is-user .mb-thread-who { color: var(--mb-accent); }
+.mb-thread-text { white-space: pre-wrap; word-break: break-word; font-size: 0.95em; }
+
+/* ===== SWIPES (alternative takes on the same board) =====
+   Same idea as Tavern's own message swipes: the counter sits in the bottom-right
+   corner of the reply, the right arrow past the last variant generates a new one,
+   and every earlier variant stays reachable. */
+.mb-swipe-bar {
+    display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+    margin-top: 6px; user-select: none; -webkit-user-select: none;
+}
+.mb-swipe-bar i {
+    cursor: pointer; font-size: 0.75em; padding: 5px 8px; border-radius: 6px;
+    color: var(--mb-text-muted); opacity: 0.7; transition: 0.15s;
+}
+.mb-swipe-bar i:hover { opacity: 1; color: var(--mb-accent); background: var(--mb-chip-strong); }
+.mb-swipe-bar i.disabled { opacity: 0.22; pointer-events: none; }
+.mb-swipe-count {
+    font-size: 0.72em; color: var(--mb-text-muted);
+    min-width: 30px; text-align: center; font-variant-numeric: tabular-nums;
+}
+.mb-swipe-bar.busy i { pointer-events: none; opacity: 0.25; }
+.mb-swipe-bar.busy .mb-swipe-count { color: var(--mb-accent); }
+/* The new variant fades in so it is obvious something changed. */
+.mb-swipe-fade { animation: mb-swipe-in 0.22s ease-out; }
+@keyframes mb-swipe-in { from { opacity: 0.25; } to { opacity: 1; } }
+@media (max-width: 768px) {
+    /* Bigger targets: these are hit with a thumb. */
+    .mb-swipe-bar i { padding: 8px 12px; font-size: 0.85em; }
+    .mb-swipe-count { font-size: 0.78em; min-width: 36px; }
+}
+
+.mb-reply-box:not(:empty) { margin-top: 10px; }
+.mb-reply-input {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    background: var(--mb-bg-input); color: var(--mb-text);
+    border: 1px solid var(--mb-border); border-radius: 8px;
+    padding: 8px 10px; font-size: 0.9em; font-family: inherit; outline: none;
+}
+.mb-reply-input:focus { border-color: var(--mb-accent); }
+.mb-reply-send { margin-top: 6px; padding: 7px; font-size: 0.85em; }
+
+.mb-folder-menu {
+    grid-template-columns: 1fr; min-width: 190px; padding: 6px;
+    max-height: 60vh; overflow-y: auto;
+}
+.mb-folder-opt {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-radius: 7px; cursor: pointer;
+    font-size: 0.85em; color: var(--mb-text); white-space: nowrap; transition: 0.15s;
+}
+.mb-folder-opt:hover { background: var(--mb-chip-strong); }
+.mb-folder-opt.active { color: var(--mb-accent); background: var(--mb-chip); }
+
+/* ===== RICH DROPDOWNS (API profile / response style) ===== */
+.mb-opt-icon { width: 1.1em; margin-right: 7px; opacity: 0.85; }
+.mb-select-wide {
+    width: 100%; justify-content: space-between;
+    padding: 10px 12px; margin-bottom: 2px;
+}
+.mb-select-wide .mb-select-value {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mb-rich-options { min-width: 300px; }
+.mb-rich-options div {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 10px 14px; white-space: normal;
+    border-bottom: 1px solid var(--mb-border);
+}
+.mb-rich-options div:last-child { border-bottom: none; }
+.mb-opt-title { font-size: 0.95em; font-weight: 600; }
+.mb-opt-desc { font-size: 0.78em; color: var(--mb-text-muted); line-height: 1.4; }
+/* Keep the sub-label readable when the row is highlighted. */
+.mb-rich-options div:hover .mb-opt-desc,
+.mb-select-options div.active .mb-opt-desc { color: inherit; opacity: 0.8; }
+.mb-select-options div.active { background: var(--mb-chip-strong); color: var(--mb-accent); }
+.mb-select-options div.active .mb-opt-title::after { content: ' ✓'; }
+
+/* ===== OPAQUE PANELS =====
+   Theme backgrounds are deliberately translucent, which made every panel show
+   the board through it and turned text into a mess. Painting an opaque board
+   colour underneath the themed tint keeps each theme's look while making the
+   panels solid — and works for Tavern Auto too, whose colours come from the
+   user's own theme and can be any alpha at all. */
+.mb-settings-panel,
+.mb-shape-picker,
+.mb-select-options,
+.mb-panel-head,
+#mb-ai-history {
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-primary), var(--mb-bg-primary));
+    backdrop-filter: blur(24px) saturate(1.1);
+    -webkit-backdrop-filter: blur(24px) saturate(1.1);
+}
+.mb-panel-head {
+    background-image: linear-gradient(var(--mb-bg-secondary), var(--mb-bg-secondary));
+}
+.mb-settings-panel { box-shadow: 0 0 40px rgba(0,0,0,0.45); }
+
+/* ===== MOBILE ADDITIONS ===== */
+@media (max-width: 768px) {
+    #mb-frame-panel, #mb-custom-color-panel { width: 100% !important; }
+    .mb-frame-grid { grid-template-columns: repeat(4, 1fr); }
+    .mb-toolbar { max-height: 280px; }
+    .mb-select-options { max-width: calc(100vw - 24px); }
+    .mb-rich-options { min-width: min(340px, calc(100vw - 24px)); }
+}
+
+
+/* ===== SWITCHES =====
+   A checkbox reads as "a form"; these settings are things you flip. The input
+   stays in the DOM (it is what change events and .prop('checked') work against)
+   but is never seen — the track and knob next to it are the control. */
+.mb-switch-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 2px; cursor: pointer; user-select: none;
+}
+.mb-switch-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mb-switch-text b { font-size: 0.86em; font-weight: 600; color: var(--mb-text); }
+.mb-switch-text em { font-size: 0.74em; font-style: normal; color: var(--mb-text-muted); line-height: 1.35; }
+.mb-switch-input { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+.mb-switch {
+    flex: 0 0 auto; position: relative; display: block;
+    width: 42px; height: 24px; border-radius: 999px;
+    background: var(--mb-chip-strong); border: 1px solid var(--mb-border);
+    transition: background 0.22s ease, border-color 0.22s ease;
+}
+.mb-switch-knob {
+    position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--mb-text-muted);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    transition: transform 0.22s cubic-bezier(0.3, 1.4, 0.5, 1), background 0.22s ease;
+}
+.mb-switch-input:checked + .mb-switch,
+.mb-switch.on {
+    background: var(--mb-accent); border-color: var(--mb-accent);
+}
+.mb-switch-input:checked + .mb-switch .mb-switch-knob,
+.mb-switch.on .mb-switch-knob { transform: translateX(18px); background: var(--mb-on-accent); }
+.mb-switch-row:hover .mb-switch { border-color: var(--mb-accent); }
+/* Compact version for the pop-over menus. */
+.mb-mini-switch {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 7px 2px; cursor: pointer; font-size: 0.78em; color: var(--mb-text);
+}
+.mb-mini-switch .mb-switch { width: 36px; height: 21px; }
+.mb-mini-switch .mb-switch-knob { width: 15px; height: 15px; }
+.mb-mini-switch .mb-switch.on .mb-switch-knob { transform: translateX(15px); }
+
+/* ===== CONTEXT SIZE ===== */
+.mb-ctx-head {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px; font-size: 0.85em; color: var(--mb-text); margin-top: 8px; margin-bottom: 6px;
+}
+.mb-ctx-num {
+    width: 74px; flex: 0 0 auto; text-align: center;
+    background: var(--mb-bg-input); border: 1px solid var(--mb-border);
+    border-radius: 7px; color: var(--mb-text); padding: 5px 6px;
+    font-size: 0.95em; font-family: inherit; outline: none;
+}
+.mb-ctx-num:focus { border-color: var(--mb-accent); }
+
+/* ===== GRID =====
+   Two pairs of lines: the fine step, and every fifth one drawn again on top so
+   it reads as heavier without needing a second colour. */
+.mb-grid-layer {
+    position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    display: none; opacity: 0.45;
+    background-image:
+        linear-gradient(to right, currentColor 1px, transparent 1px),
+        linear-gradient(to bottom, currentColor 1px, transparent 1px),
+        linear-gradient(to right, currentColor 1px, transparent 1px),
+        linear-gradient(to bottom, currentColor 1px, transparent 1px);
+    color: var(--mb-accent);
+}
+.mb-grid-layer.on { display: block; }
+
+/* ===== CONNECTORS ===== */
+.mb-canvas-area.linking { cursor: crosshair; }
+.mb-canvas-area.linking .mb-card { cursor: crosshair; }
+.mb-card.mb-link-source { box-shadow: var(--mb-card-shadow), 0 0 0 3px var(--mb-accent) !important; }
+#mb-link-menu { width: 250px; }
+.mb-link-colors { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 8px; }
+.mb-link-colors .mb-color-dot { width: 22px; height: 22px; }
+.mb-link-label { margin-bottom: 4px; }
+.mb-brush-grid.mb-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+/* ===== NOTE MARKUP ===== */
+.mb-card-content .mb-note-h { display: block; font-size: 1.12em; margin: 2px 0 3px; }
+.mb-card-content .mb-note-quote {
+    display: block; padding-left: 8px; margin: 2px 0;
+    border-left: 3px solid currentColor; opacity: 0.78;
+}
+/* SillyTavern styles every <code> on the page white on near-black, for its own
+   dark chat bubbles. A card is usually cream, so the text came out white on
+   cream — a pill with nothing in it. The colour has to be stated here, or the
+   global rule decides it. */
+.mb-card-content code {
+    font-family: 'Courier New', 'Droid Sans Mono', monospace; font-size: 0.92em;
+    color: inherit !important;
+    background: rgba(128,128,128,0.18) !important;
+    border: 1px solid rgba(128,128,128,0.25);
+    border-radius: 4px; padding: 0 4px;
+}
+.mb-inline-spoiler {
+    background: currentColor; border-radius: 3px; cursor: pointer;
+    filter: blur(0.28em); transition: filter 0.28s ease, background 0.28s ease;
+    -webkit-user-select: none; user-select: none;
+}
+.mb-inline-spoiler.revealed { background: transparent; filter: none; }
+.mb-spoiler {
+    display: block; margin: 5px 0;
+    border: 1px solid rgba(128,128,128,0.35); border-radius: 8px;
+}
+.mb-spoiler-head {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 8px; cursor: pointer; font-weight: 600; font-size: 0.94em;
+    background: rgba(128,128,128,0.12); border-radius: 7px;
+}
+.mb-spoiler-caret { font-size: 0.72em; transition: transform 0.26s ease; opacity: 0.8; }
+.mb-spoiler.open .mb-spoiler-caret { transform: rotate(90deg); }
+/* 0fr to 1fr animates a height the content decides for itself, which max-height
+   guesswork never does properly. */
+.mb-spoiler-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.28s ease; }
+.mb-spoiler.open .mb-spoiler-body { grid-template-rows: 1fr; }
+.mb-spoiler-inner { overflow: hidden; min-height: 0; padding: 0 9px; }
+.mb-spoiler.open .mb-spoiler-inner { padding: 6px 9px 8px; }
+
+/* ===== NOTE EDITOR (style panel) ===== */
+.mb-markup-bar { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; }
+.mb-markup-btn {
+    width: 32px; height: 30px; border-radius: 7px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--mb-chip); color: var(--mb-text-muted);
+    border: 1px solid transparent; font-size: 0.82em; transition: 0.15s;
+}
+.mb-markup-btn:hover { background: var(--mb-chip-strong); color: var(--mb-accent); border-color: var(--mb-border); }
+.mb-note-editor {
+    resize: vertical; font-family: inherit; line-height: 1.45;
+    min-height: 110px; margin-bottom: 6px;
+}
+
+/* ===== TREES ===== */
+.mb-card.is-tree {
+    padding: 0; background: transparent !important; border: none !important;
+    box-shadow: none !important; overflow: visible;
+}
+.mb-card.is-tree .mb-card-color-strip, .mb-card.is-tree .mb-card-pin { display: none; }
+.mb-card.is-tree::before, .mb-card.is-tree::after { display: none !important; }
+.mb-tree-wrap { display: block; width: 100%; line-height: 0; }
+.mb-tree-svg {
+    width: 100%; height: auto; display: block;
+    filter: drop-shadow(0 4px 14px rgba(0,0,0,0.35));
+    -webkit-user-select: none; user-select: none;
+}
+#mb-tree-panel { width: 330px; }
+#mb-timeline-panel { width: 300px; }
+#mb-tree-picker { width: 240px; }
+.mb-tree-presets { display: flex; flex-direction: column; gap: 5px; }
+.mb-tree-presets .mb-brush-opt.wide { justify-content: flex-start; padding: 9px 10px; }
+.mb-tree-list { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.mb-tree-row {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--mb-chip); border: 1px solid var(--mb-border);
+    border-radius: 8px; padding: 5px 6px;
+}
+.mb-tree-row.edge { flex-wrap: wrap; }
+.mb-tree-row input, .mb-tree-row select {
+    flex: 1 1 60px; min-width: 0;
+    background: var(--mb-bg-input); border: 1px solid var(--mb-border);
+    border-radius: 6px; color: var(--mb-text); padding: 5px 7px;
+    font-size: 0.78em; font-family: inherit; outline: none;
+}
+.mb-tree-row input:focus, .mb-tree-row select:focus { border-color: var(--mb-accent); }
+.mb-tree-row .mb-tree-role { flex: 1 1 50px; opacity: 0.85; }
+.mb-tree-row .mb-tree-label { flex: 1 1 100%; }
+.mb-tree-swatch {
+    flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%;
+    cursor: pointer; border: 1px solid rgba(255,255,255,0.35);
+}
+.mb-tree-del { flex: 0 0 auto; cursor: pointer; color: var(--mb-text-muted); font-size: 0.8em; padding: 3px 4px; }
+.mb-tree-del:hover { color: #ef4444; }
+.mb-skin-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.mb-skin-opt {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 7px 10px; border-radius: 8px; font-size: 0.75em;
+    border: 1px solid transparent; transition: 0.15s;
+}
+.mb-skin-opt:hover { filter: brightness(1.1); }
+.mb-skin-opt.active { outline: 2px solid var(--mb-accent); outline-offset: 1px; }
+.mb-skin-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+/* ===== MOBILE ADDITIONS FOR THE NEW PANELS ===== */
+@media (max-width: 768px) {
+    #mb-tree-panel, #mb-timeline-panel { width: 100% !important; }
+    #mb-link-menu, #mb-tree-picker { width: min(280px, calc(100vw - 24px)); }
+    .mb-markup-btn { width: 36px; height: 34px; }
+}
+
+/* ===== CUSTOM TREE PALETTE ===== */
+.mb-skin-custom:not(:empty) {
+    margin-top: 10px; padding: 10px;
+    border: 1px dashed var(--mb-border); border-radius: 10px;
+    background: var(--mb-chip);
+}
+.mb-palette-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mb-palette-cell {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 6px 8px; border-radius: 8px; font-size: 0.75em;
+    background: var(--mb-bg-input); border: 1px solid var(--mb-border);
+    color: var(--mb-text); transition: 0.15s;
+}
+.mb-palette-cell:hover { border-color: var(--mb-accent); }
+.mb-palette-dot {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.4); box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.mb-skin-custom .mb-settings-label { margin-top: 12px; }
+
+/* ===== SIZE CONTROL ===== */
+.mb-size-ctl { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mb-size-ctl input[type="range"] { flex: 1 1 auto; min-width: 0; }
+.mb-size-ctl .mb-ctx-num { width: 68px; flex: 0 0 auto; }
+.mb-size-steps { display: flex; flex-wrap: wrap; gap: 5px; }
+.mb-size-step {
+    flex: 1 1 auto; padding: 7px 6px; cursor: pointer;
+    background: var(--mb-chip); color: var(--mb-text);
+    border: 1px solid var(--mb-border); border-radius: 7px;
+    font-size: 0.74em; font-family: inherit; white-space: nowrap;
+}
+.mb-size-step:hover { background: var(--mb-chip-strong); color: var(--mb-accent); border-color: var(--mb-accent); }
+
+/* ===== STICKER GALLERY ===== */
+.mb-sticker-item { position: relative; }
+.mb-sticker-del {
+    position: absolute; top: -5px; right: -5px;
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: #dc2626; color: #fff; font-size: 15px; line-height: 1;
+    cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+    opacity: 0; transition: opacity 0.15s, transform 0.15s;
+}
+.mb-sticker-item:hover .mb-sticker-del { opacity: 1; }
+.mb-sticker-del:hover { transform: scale(1.15); }
+/* No hover on a touchscreen — the cross has to be there all the time. */
+@media (hover: none) {
+    .mb-sticker-del { opacity: 0.92; }
+    .mb-sticker-grid { gap: 12px; padding-top: 6px; }
+}
+
+/* ===== CHAT IMAGE PIN: WHERE IT SITS, AND A PLUS THAT IS ACTUALLY CENTRED =====
+   Tavern's own image controls (undo, regenerate, fullscreen, copy, edit, delete)
+   run along the top edge of the picture, so the top corners are the two that are
+   already taken. Bottom-right is the default; the setting moves it. */
+.mb-chat-img-pin {
+    top: auto; left: auto; bottom: 8px; right: 8px;
+    display: flex; align-items: center; justify-content: center;
+    /* A "+" typed as text is centred on the font's baseline rather than on the
+       circle, which is what made it sit high and slightly left. The icon has no
+       baseline to fight with. */
+    font-size: 13px; line-height: 1; font-weight: 400;
+}
+.mb-chat-img-pin i { display: block; }
+[data-mb-pin-pos="tl"] .mb-chat-img-pin { top: 8px; left: 8px; bottom: auto; right: auto; }
+[data-mb-pin-pos="tr"] .mb-chat-img-pin { top: 8px; right: 8px; bottom: auto; left: auto; }
+[data-mb-pin-pos="bl"] .mb-chat-img-pin { bottom: 8px; left: 8px; top: auto; right: auto; }
+[data-mb-pin-pos="br"] .mb-chat-img-pin { bottom: 8px; right: 8px; top: auto; left: auto; }
+/* Fingers are wider than mouse pointers. */
+@media (hover: none) {
+    .mb-chat-img-pin { width: 32px; height: 32px; font-size: 15px; }
+}
+
+/* ===== CORNER CHOOSER ===== */
+.mb-corner-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mb-corner-opt {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    padding: 8px 10px; border-radius: 8px; font-size: 0.75em;
+    background: var(--mb-chip); color: var(--mb-text);
+    border: 1px solid var(--mb-border); transition: 0.15s;
+}
+.mb-corner-opt:hover { background: var(--mb-chip-strong); border-color: var(--mb-accent); }
+.mb-corner-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); background: var(--mb-chip-strong); }
+/* A little picture of a photo with the button in the chosen corner. */
+.mb-corner-box {
+    position: relative; flex: 0 0 auto;
+    width: 26px; height: 20px; border-radius: 3px;
+    border: 1px solid currentColor; opacity: 0.85;
+}
+.mb-corner-box i {
+    position: absolute; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--mb-accent);
+}
+.mb-corner-opt[data-pos="tl"] .mb-corner-box i { top: 2px; left: 2px; }
+.mb-corner-opt[data-pos="tr"] .mb-corner-box i { top: 2px; right: 2px; }
+.mb-corner-opt[data-pos="bl"] .mb-corner-box i { bottom: 2px; left: 2px; }
+.mb-corner-opt[data-pos="br"] .mb-corner-box i { bottom: 2px; right: 2px; }
+
+/* ===== SPOILERS THAT LOOK LIKE BUTTONS =====
+   These override the first pass above. A fold is something you press, so it has
+   to read as pressable from across the board: a tinted bar, a caret that turns,
+   and a word telling you what pressing it will do. */
+.mb-spoiler {
+    border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-radius: 9px; overflow: hidden;
+}
+.mb-spoiler-head {
+    min-height: 30px; padding: 6px 10px; gap: 8px;
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    border-radius: 0; letter-spacing: 0.01em;
+    transition: background 0.18s;
+}
+.mb-spoiler-head:hover,
+.mb-spoiler-head:active { background: color-mix(in srgb, currentColor 22%, transparent); }
+.mb-spoiler-head span { flex: 1 1 auto; min-width: 0; }
+/* The label does the explaining, and changes with the state. */
+.mb-spoiler-head::after {
+    content: 'открыть';
+    flex: 0 0 auto; font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; opacity: 0.62;
+}
+.mb-spoiler.open > .mb-spoiler-head::after { content: 'скрыть'; }
+.mb-spoiler-caret { opacity: 0.75; }
+
+/* An inline redaction: a bar you can see is a bar, with a dotted edge so it does
+   not read as a rendering glitch. Blur alone left people wondering what it was. */
+.mb-inline-spoiler {
+    display: inline-block; padding: 0 5px; border-radius: 4px;
+    background: color-mix(in srgb, currentColor 78%, transparent);
+    border-bottom: 2px dotted color-mix(in srgb, currentColor 55%, transparent);
+    filter: blur(0.22em);
+    transition: filter 0.25s ease, background 0.25s ease, border-color 0.25s;
+}
+.mb-inline-spoiler:hover { filter: blur(0.16em); }
+.mb-inline-spoiler.revealed {
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    border-bottom-color: color-mix(in srgb, currentColor 40%, transparent);
+    filter: none;
+}
+/* Browsers without color-mix fall back to a plain grey that works on any card. */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+    .mb-spoiler { border-color: rgba(128,128,128,0.4); }
+    .mb-spoiler-head { background: rgba(128,128,128,0.15); }
+    .mb-inline-spoiler { background: rgba(90,90,90,0.85); border-bottom-color: rgba(90,90,90,0.6); }
+    .mb-inline-spoiler.revealed { background: rgba(128,128,128,0.16); }
+}
+.mb-card-act-btn.folds i { pointer-events: none; }
+
+/* ===== FACES IN THE TREE EDITOR ===== */
+.mb-tree-face {
+    flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--mb-bg-input); border: 1px solid var(--mb-border);
+    color: var(--mb-text-muted); cursor: pointer; overflow: hidden;
+    font-size: 0.7em; transition: 0.15s;
+}
+.mb-tree-face:hover { border-color: var(--mb-accent); color: var(--mb-accent); }
+.mb-tree-face.has { border-color: var(--mb-accent); }
+.mb-tree-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* The little shape sample next to circle / rounded / square */
+.mb-avatar-shape {
+    width: 13px; height: 13px; flex: 0 0 auto;
+    background: currentColor; opacity: 0.75;
+}
+.mb-avatar-shape.circle { border-radius: 50%; }
+.mb-avatar-shape.rounded { border-radius: 4px; }
+.mb-avatar-shape.square { border-radius: 0; }
+
+#mb-avatar-picker { width: 290px; max-height: 70vh; overflow-y: auto; }
+.mb-avatar-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    max-height: 260px; overflow-y: auto; padding: 2px;
+}
+.mb-avatar-opt {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    cursor: pointer; padding: 4px 2px; border-radius: 8px;
+    border: 1px solid transparent; background: var(--mb-chip);
+    font-size: 0.62em; color: var(--mb-text-muted); text-align: center;
+}
+.mb-avatar-opt img {
+    width: 44px; height: 44px; border-radius: 50%; object-fit: cover;
+    background: var(--mb-bg-input);
+}
+.mb-avatar-opt:hover { border-color: var(--mb-accent); color: var(--mb-text); }
+/* The one whose name looks like this person's — offered first and marked. */
+.mb-avatar-opt.suggested { border-color: var(--mb-accent); color: var(--mb-accent); }
+.mb-avatar-opt.suggested::after {
+    content: 'похоже'; font-size: 0.85em; opacity: 0.8;
+}
+.mb-avatar-opt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* ===== SLIDERS =====
+   The browser default is a grey rail with a square handle that inherits nothing
+   from the board's theme, and its hit area is barely taller than the rail — easy
+   to miss on a phone. These are themed, and 26px tall so a thumb finds them. */
+#mb-modal input[type="range"],
+#mb-dialog input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 26px; margin: 0;
+    /* background-COLOR, not the shorthand: this selector carries an id and so
+       outranks every rule that paints a gradient on a colour rail. The shorthand
+       was quietly wiping the hue rainbow. */
+    background-color: transparent; cursor: pointer; outline: none;
+}
+#mb-modal input[type="range"]::-webkit-slider-runnable-track,
+#mb-dialog input[type="range"]::-webkit-slider-runnable-track {
+    height: 7px; border-radius: 999px;
+    background: var(--mb-chip-strong);
+    border: 1px solid var(--mb-border);
+}
+#mb-modal input[type="range"]::-moz-range-track,
+#mb-dialog input[type="range"]::-moz-range-track {
+    height: 7px; border-radius: 999px;
+    background: var(--mb-chip-strong); border: 1px solid var(--mb-border);
+}
+#mb-modal input[type="range"]::-webkit-slider-thumb,
+#mb-dialog input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--mb-accent);
+    border: 2px solid var(--mb-bg-primary);
+    box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+    margin-top: -8px;                     /* centres the thumb on a 7px track */
+    transition: transform 0.12s ease, background 0.15s;
+}
+#mb-modal input[type="range"]::-moz-range-thumb,
+#mb-dialog input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--mb-bg-primary);
+    background: var(--mb-accent); box-shadow: 0 1px 5px rgba(0,0,0,0.45);
+}
+#mb-modal input[type="range"]:hover::-webkit-slider-thumb { background: var(--mb-accent-hover); }
+#mb-modal input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.18); }
+#mb-modal input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(255,255,255,0.18); }
+/* The colour sliders paint their own gradient on the input itself, so their
+   track has to show it through instead of covering it with a flat fill. */
+#mb-hue-slider::-webkit-slider-runnable-track,
+#mb-lightness-slider::-webkit-slider-runnable-track,
+.mb-cp-h::-webkit-slider-runnable-track,
+.mb-cp-s::-webkit-slider-runnable-track,
+.mb-cp-l::-webkit-slider-runnable-track { background: inherit; }
+#mb-hue-slider::-moz-range-track,
+#mb-lightness-slider::-moz-range-track,
+.mb-cp-h::-moz-range-track, .mb-cp-s::-moz-range-track, .mb-cp-l::-moz-range-track { background: inherit; }
+/* Those gradients are written straight onto the element by the colour picker,
+   as a `background` shorthand — which also resets the size to "as tall as the
+   element". Pin it back to the height of the rail, over the inline value. */
+#mb-hue-slider, #mb-lightness-slider, .mb-cp-h, .mb-cp-s, .mb-cp-l {
+    border-radius: 999px;
+    background-size: 100% 7px !important;
+    background-position: 0 center !important;
+    background-repeat: no-repeat !important;
+}
+/* The hue rail is the one nobody paints from JS, so it carries its own rainbow. */
+#mb-hue-slider, .mb-cp-h {
+    background-image: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+/* Room around a slider that sits under a row of buttons — it used to touch them,
+   and a near miss dragged the wrong control. */
+.mb-skin-row + .mb-brush-size,
+.mb-brush-grid + .mb-brush-size { margin-top: 14px; }
+.mb-brush-size { padding: 2px 0; }
+.mb-size-ctl { margin-top: 4px; }
+
+/* ===== SCROLLBARS ===== */
+#mb-modal, #mb-modal *, #mb-dialog, #mb-dialog * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--mb-border) transparent;
+}
+#mb-modal ::-webkit-scrollbar, #mb-dialog ::-webkit-scrollbar { width: 10px; height: 10px; }
+#mb-modal ::-webkit-scrollbar-track, #mb-dialog ::-webkit-scrollbar-track {
+    background: transparent; border-radius: 999px;
+}
+#mb-modal ::-webkit-scrollbar-thumb, #mb-dialog ::-webkit-scrollbar-thumb {
+    background: var(--mb-border); border-radius: 999px;
+    border: 3px solid transparent; background-clip: padding-box;
+    transition: background 0.15s;
+}
+#mb-modal ::-webkit-scrollbar-thumb:hover, #mb-dialog ::-webkit-scrollbar-thumb:hover {
+    background: var(--mb-accent); background-clip: padding-box;
+}
+#mb-modal ::-webkit-scrollbar-corner { background: transparent; }
+
+/* ===== POP-OVER PANELS SCROLL ON THEIR OWN =====
+   The reply-style menu is taller than a phone screen and, on a desktop, taller
+   than a short window. It has to scroll inside itself — otherwise the wheel goes
+   to the board and the bottom of the list is simply unreachable. */
+.mb-brush-panel {
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+/* ===== LIVE PREVIEW IN THE NOTE EDITOR =====
+   On a phone the panel covers the card being edited, so the card is reproduced
+   here: same renderer, same fonts, same spoilers — and they open here too. */
+.mb-note-preview {
+    background: var(--mb-card-bg); color: var(--mb-card-text);
+    border: 1px solid var(--mb-border); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 4px;
+    max-height: 260px; overflow-y: auto;
+    box-shadow: inset 0 1px 6px rgba(0,0,0,0.12);
+}
+.mb-note-preview:empty::before {
+    content: 'пусто'; opacity: 0.45; font-size: 0.85em;
+}
+.mb-note-preview .mb-card-content {
+    padding: 0; user-select: text; -webkit-user-select: text;
+    white-space: pre-wrap; word-break: break-word;
+}
+/* An empty note on the board says what to do with it rather than sitting blank. */
+.mb-card-content:empty::before {
+    content: 'пусто — нажмите ✎';
+    opacity: 0.4; font-size: 0.85em; font-style: italic;
+}
+
+/* ===== THE PREVIEW IS A REAL CARD =====
+   Same classes as on the board, so frames and shapes apply to it — which means
+   it has to be talked out of being absolutely positioned and board-sized. */
+.mb-note-preview .mb-card.mb-preview-card {
+    position: relative; left: auto !important; top: auto !important;
+    width: 100% !important; max-width: 100% !important; min-width: 0 !important;
+    z-index: auto !important; cursor: default;
+    transform: none !important;
+}
+.mb-note-preview .mb-preview-card .mb-card-content {
+    user-select: text; -webkit-user-select: text;
+    white-space: pre-wrap; word-break: break-word;
+}
+.mb-note-preview {
+    background: transparent; border: none; box-shadow: none;
+    padding: 4px 2px 2px;
+}
+.mb-note-preview:empty::before { content: none; }
+
+/* ===== TEXT SIZE, NEXT TO THE PREVIEW ===== */
+.mb-fontsize-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 7px;
+}
+.mb-size-step.big {
+    flex: 0 0 auto; width: 44px; height: 34px; font-size: 1.15em; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+}
+.mb-fontsize-val {
+    flex: 1 1 auto; text-align: center; font-size: 0.9em;
+    color: var(--mb-accent); font-variant-numeric: tabular-nums;
+}

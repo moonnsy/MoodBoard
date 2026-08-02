@@ -1,0 +1,13 @@
+{
+    "name": "MoodBoard",
+    "display_name": "MoodBoard",
+    "description": "Creative mood board extension — pin quotes, images, draw, add shapes and arrows. Supports per-chat, per-character and global boards.",
+    "version": "1.0.0",
+    "author": "moonnsy",
+    "js": "index.js",
+    "css": "style.css",
+    "module": true,
+    "requires": [],
+    "optional": [],
+    "assets": []
+}
