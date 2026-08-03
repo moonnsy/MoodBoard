@@ -4379,6 +4379,28 @@ async function addCustomFrames(files) {
     toastr?.success(`Рамка добавлена — ищите её в «Оформление»${kb > 20 ? `. Сжато на ${kb} КБ` : ''}`);
 }
 
+// Frames measured by an older version are re-measured once, quietly, at start-up.
+// Only the numbers change — the picture itself is left exactly as stored.
+async function refreshStaleFrames() {
+    const frames = customFrames().filter(f => f.src && f.mode && (f.v || 0) < FRAME_ANALYSIS_V);
+    if (!frames.length) return;
+    let fixed = 0;
+    for (const f of frames) {
+        try {
+            const measured = await analyzeFrameImage(f.src, 512, true);
+            // Keep the name, the id and the user's own scale; replace what was measured.
+            Object.assign(f, measured);
+            fixed++;
+        } catch (e) { console.warn(LOG, 're-measuring frame failed', f.name, e); }
+    }
+    if (!fixed) return;
+    console.log(LOG, `re-measured ${fixed} frame(s) with the current analysis`);
+    save();
+    injectCustomFrameCss();
+    renderFrameList();
+    if ($('#mb-modal').is(':visible')) renderBoard();
+}
+
 // Runs the current processing over frames that were added before it existed.
 async function reprocessFrames() {
     const frames = customFrames();
@@ -4417,7 +4439,13 @@ async function reprocessFrames() {
 //
 // The earlier version squashed everything into a square and always sliced at 33%,
 // which is what distorted the artwork and left rectangular seams.
-async function analyzeFrameImage(src, max = 512) {
+// Bumped whenever the measuring changes, so frames measured by an older version
+// can be found and put right without the user having to know about it.
+const FRAME_ANALYSIS_V = 2;
+
+// `keepSrc` re-measures a picture that is already stored, without encoding it
+// again — a second round trip through the encoder would cost quality for nothing.
+async function analyzeFrameImage(src, max = 512, keepSrc = false) {
     const img = new Image();
     img.src = src;
     await img.decode();
@@ -4444,49 +4472,50 @@ async function analyzeFrameImage(src, max = 512) {
     };
     const rows = [0.35, 0.5, 0.65], cols = [0.35, 0.5, 0.65];
 
-    // Walks inward along one line and reports where the hole starts, measured from
-    // the edge. Crucially it steps over any transparent margin first, then over the
-    // artwork, and only then looks for the opening: a brush stroke has transparent
-    // edges too, and reading those as "the hole begins immediately" was exactly
-    // what made a solid stroke look like a frame with a 1px border.
-    const holeStart = (len, sample) => {
-        let i = 0;
-        while (i < len && sample(i) <= CLEAR) i++;   // outer transparent margin
-        if (i >= len) return null;                   // nothing drawn on this line
-        const artStart = i;
-        while (i < len && sample(i) > CLEAR) i++;    // the artwork itself
-        if (i >= len) return null;                   // opaque all the way across
-        if (i - artStart < 1) return null;
-        return i;
+    // The see-through window along one line, as [where it starts, where it ends].
+    //
+    // It is found as the LONGEST run of transparency on that line, not the first.
+    // An ornate frame — a bow at the bottom, filigree, a crest — has little gaps
+    // inside its own artwork, and taking the first gap as the window cut the
+    // ornament off: the frame was sliced through the middle of its decoration and
+    // the photo was left sitting on top of the rest of it.
+    const holeSpan = (len, sample) => {
+        let best = null, bestLen = 0;
+        let run = -1;
+        for (let i = 0; i <= len; i++) {
+            const clear = i < len && sample(i) <= CLEAR;
+            if (clear) { if (run < 0) run = i; continue; }
+            if (run >= 0) {
+                const n = i - run;
+                // A run that touches an edge is the outer margin, not the window.
+                if (run > 0 && i < len && n > bestLen) { bestLen = n; best = [run, i]; }
+                run = -1;
+            }
+        }
+        return best;
     };
 
-    const left = probe(rows, f => {
-        const y = Math.round(h * f);
-        return holeStart(w, i => alphaAt(i, y));
-    });
-    const right = probe(rows, f => {
-        const y = Math.round(h * f);
-        return holeStart(w, i => alphaAt(w - 1 - i, y));
-    });
-    const top = probe(cols, f => {
-        const x = Math.round(w * f);
-        return holeStart(h, i => alphaAt(x, i));
-    });
-    const bottom = probe(cols, f => {
-        const x = Math.round(w * f);
-        return holeStart(h, i => alphaAt(x, h - 1 - i));
-    });
+    // One span per probe line, then each edge is the median across the lines.
+    const rowSpans = rows.map(f => holeSpan(w, i => alphaAt(i, Math.round(h * f))));
+    const colSpans = cols.map(f => holeSpan(h, i => alphaAt(Math.round(w * f), i)));
+    const left = probe(rowSpans, s => (s ? s[0] : null));
+    const right = probe(rowSpans, s => (s ? w - s[1] : null));
+    const top = probe(colSpans, s => (s ? s[0] : null));
+    const bottom = probe(colSpans, s => (s ? h - s[1] : null));
 
     // WebP keeps the alpha channel and is a fraction of the size of the PNG these
     // usually arrive as; PNG stays as the fallback where it wins or is all the
     // browser can produce.
-    const png = c.toDataURL('image/png');
-    let best = png;
-    try {
-        const webp = c.toDataURL('image/webp', 0.92);
-        if (webp.startsWith('data:image/webp') && webp.length < png.length) best = webp;
-    } catch (e) { /* no webp encoder: PNG it is */ }
-    const out = { src: best, sw: w, sh: h };
+    let best = src;
+    if (!keepSrc) {
+        const png = c.toDataURL('image/png');
+        best = png;
+        try {
+            const webp = c.toDataURL('image/webp', 0.92);
+            if (webp.startsWith('data:image/webp') && webp.length < png.length) best = webp;
+        } catch (e) { /* no webp encoder: PNG it is */ }
+    }
+    const out = { src: best, sw: w, sh: h, v: FRAME_ANALYSIS_V };
 
     // Nothing transparent along any middle line, or the hole would be so large
     // there is barely any artwork left: not a frame.
@@ -4507,12 +4536,15 @@ async function analyzeFrameImage(src, max = 512) {
 
     out.mode = 'frame';
     // A couple of pixels of overlap hides seams where edge meets corner.
+    // The ceiling is per axis and generous: a frame whose bottom is one big
+    // ornament — a bow, a plaque, a crest — genuinely is half artwork, and
+    // clamping it lower is what chopped the ornament in half.
     const grow = 1;
     out.inset = {
-        t: Math.min(Math.max(1, top + grow), Math.floor(h * 0.45)),
-        r: Math.min(Math.max(1, right + grow), Math.floor(w * 0.45)),
-        b: Math.min(Math.max(1, bottom + grow), Math.floor(h * 0.45)),
-        l: Math.min(Math.max(1, left + grow), Math.floor(w * 0.45)),
+        t: Math.min(Math.max(1, top + grow), Math.floor(h * 0.48)),
+        r: Math.min(Math.max(1, right + grow), Math.floor(w * 0.48)),
+        b: Math.min(Math.max(1, bottom + grow), Math.floor(h * 0.48)),
+        l: Math.min(Math.max(1, left + grow), Math.floor(w * 0.48)),
     };
     return out;
 }
@@ -4614,9 +4646,12 @@ function applyCustomFrameSizing($card, card, liveW) {
     const w = liveW || card.w || el.offsetWidth || f.sw;
     const k = Math.max(0.3, Math.min(3, f.scale || 1));
     const s = Math.max(0.3, Math.min(2.5, w / f.sw)) * k;
-    // Whatever happens, the two side bands together may not swallow the card.
+    // Sideways the bands are capped, because the card's width is fixed and two
+    // fat bands would leave nothing between them. Vertically there is nothing to
+    // protect: the card simply grows taller, so a frame with a tall ornament at
+    // the bottom keeps it at full size instead of being squashed to fit a cap.
     const capX = Math.max(6, w * 0.3);
-    const capY = Math.max(6, w * 0.35);
+    const capY = 4000;
     const px = (v, cap) => Math.round(Math.max(2, Math.min(cap, v * s)));
     const box = `${px(band.t, capY)}px ${px(band.r, capX)}px ${px(band.b, capY)}px ${px(band.l, capX)}px`;
     // A frame keeps text inside its hole with a border; a plaque keeps it on the
@@ -4691,8 +4726,19 @@ function frameCss(f) {
     border-image-repeat: stretch !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    /* No card colour behind a frame. A card paints its cream over the whole
+       border box, including underneath the artwork — so every part of the frame
+       that is transparent showed cream: a pale outline around the picture, and a
+       pale rectangle behind the rounded corners of the frame itself. The frame
+       is the whole of the card's appearance; nothing may sit behind it. */
+    background: transparent !important;
 }
-${sel} .mb-card-content, ${sel} .mb-card-content-wrap { background: transparent; }
+/* A picture needs nothing behind it — the frame holds the photo and that is all.
+   Text does: a note whose window opens straight onto the board is unreadable, so
+   the paper is painted inside the window only, never around the artwork. */
+${sel} .mb-card-content-wrap { background: transparent; }
+${sel} .mb-card-content { background: var(--mb-card-bg); }
+${sel} .mb-card-content:empty { background: transparent; }
 ${hide}`;
 }
 
@@ -8373,6 +8419,7 @@ async function init() {
     renderFrameList();
     renderFontList();
     refreshProfilesUI();
+    refreshStaleFrames();
     if (typeof eventSource !== 'undefined') {
         eventSource.on(event_types.CHAT_CHANGED, () => {
             if (drawSaveTimer) { serializeDrawing(); save(); }

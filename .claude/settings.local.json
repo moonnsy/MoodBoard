@@ -55,7 +55,12 @@
       "Bash(grep -n \"setTimeout\\(open\\\\|contextmenu', e => { e.preventDefault\\(\\);\\\\|contextmenu', function\\(e\\)\\\\|Hold = setTimeout\\\\|analyzeWasHold = true\\\\|tlWasHold = true\\\\|treeWasHold = true\" index.js)",
       "Bash(grep -n \"\\\\$\\(document\\).on\\('click', e => {\" -A 4 index.js)",
       "Bash(grep -n \"is-editing\\\\|contenteditable=\\\\\\\\\\\\\\\\\\\\\"true\\\\\\\\\\\\\\\\\\\\\"\" index.js)",
-      "Bash(grep -n 'card.fontFamily = val;\\\\|card.fontSize = val;\\\\|card.align = val;\\\\|$card.find\\('\\\\''.mb-card-content'\\\\''\\).css\\('\\\\''color'\\\\'', val' index.js)"
+      "Bash(grep -n 'card.fontFamily = val;\\\\|card.fontSize = val;\\\\|card.align = val;\\\\|$card.find\\('\\\\''.mb-card-content'\\\\''\\).css\\('\\\\''color'\\\\'', val' index.js)",
+      "Bash(ls \"C:/SillyTavern/data/default-user/files/\" 2>/dev/null | head && ls \"C:/SillyTavern/data/default-user/user/files/\" 2>/dev/null | head)",
+      "Bash(node framecheck.js)",
+      "Bash(cp frames.html \"C:/SillyTavern/public/mb-frames.html\")",
+      "Bash(find \"C:/SillyTavern/data\" -name \"moodboard_data.json\" 2>/dev/null | head)",
+      "Bash(sed -i \"s|C:/SillyTavern/data/default-user/files/moodboard_data.json|C:/SillyTavern/data/default-user/user/files/moodboard_data.json|\" framecheck.js)"
     ]
   }
 }
