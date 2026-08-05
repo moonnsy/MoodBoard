@@ -5573,6 +5573,28 @@ function appendSizeControl($body, card, $card) {
     $body.append('<div class="mb-select-hint">Уголок карточки тоже тянется, но на телефоне дальше края экрана не утащишь — здесь предел в 3000 px.</div>');
 }
 
+// ===== SHAPE COLOUR =====
+// The built-in shapes used to be fixed: a ticket was always cream, a polaroid
+// always white, washi tape always lilac. One custom property on the card now
+// feeds every one of them (see the block above the shape rules in the CSS), so
+// picking a colour retints the shape's material and nothing else.
+//
+// Absent means untouched: with no colour chosen the variable is not set at all
+// and each shape falls back to the literal value it always had.
+function applyShapeColor($card, card) {
+    const el = $card && ($card[0] || $card);
+    if (!el || !el.style) return;
+    if (card.shapeColor) el.style.setProperty('--mb-shape', card.shapeColor);
+    else el.style.removeProperty('--mb-shape');
+}
+
+// Custom frames are pictures, and a picture cannot be retinted by a colour
+// underneath it — so the control is offered only where it does something.
+function shapeTakesColor(card) {
+    const s = card.shape || 'default';
+    return !s.startsWith('custom-') && s !== 'none' && s !== 'circle';
+}
+
 function applyCardTypography($card, card, isImg) {
     if (isImg) return;
     const $c = $card.find('.mb-card-content');
@@ -5637,6 +5659,7 @@ function appendNoteEditor($body, card, $card) {
         </div>`);
         $prevWrap.append($mini);
         applyCardTypography($mini, card, false);
+        applyShapeColor($mini, card);
         // Custom frames size their band against the card's width; the preview is
         // narrower than the real thing, so it is measured on its own terms.
         applyCustomFrameSizing($mini, card, Math.max(120, $prevWrap.width() || 260));
@@ -5727,6 +5750,7 @@ function openStylePanel(card, $card) {
     const allFrameCls = ALL_FRAME_CLASSES + ' ' + custom.map(f => 'shape-custom-' + f.id).join(' ');
 
     const pickFrame = ($grid, val) => {
+        const hadColor = shapeTakesColor(card);
         card.shape = val;
         $card.removeClass(allFrameCls).addClass('shape-' + val);
         applyCustomFrameSizing($card, card);
@@ -5734,6 +5758,9 @@ function openStylePanel(card, $card) {
         $grid.addClass('active');
         refreshNotePreview();
         save();
+        // The colour row belongs to some shapes and not others, so switching
+        // between those two groups has to rebuild the panel.
+        if (hadColor !== shapeTakesColor(card)) openStylePanel(card, $card);
     };
 
     // The text comes first: on a note it is the reason the panel was opened.
@@ -5812,6 +5839,60 @@ function openStylePanel(card, $card) {
         $(`<div class="mb-frame-opt ${(card.shape || 'default') === val ? 'active' : ''}"><i class="fa-solid fa-${icon}"></i><span>${label}</span></div>`)
             .on('click', function() { pickFrame($(this), val); }).appendTo($fg);
     });
+
+    if (shapeTakesColor(card)) {
+        $body.append('<span class="mb-settings-label">Цвет рамки</span>');
+        const $sc = $('<div class="mb-textcolor"></div>').appendTo($body);
+        const setShapeColor = (val) => {
+            if (val) { card.shapeColor = val; rememberColor(val); }
+            else delete card.shapeColor;
+            applyShapeColor($card, card);
+            refreshNotePreview();
+            save(true);
+            openStylePanel(card, $card);   // refresh the swatch row
+        };
+        $(`<span class="mb-tc-swatch mb-tc-auto ${card.shapeColor ? '' : 'active'}" title="Как было"><i class="fa-solid fa-ban"></i></span>`)
+            .on('click', () => setShapeColor(null)).appendTo($sc);
+        const quickShape = [...new Set([...recentColors(), ...(boards.global?.savedColors || [])])].slice(0, 9);
+        quickShape.forEach(c => {
+            $(`<span class="mb-tc-swatch ${card.shapeColor === c ? 'active' : ''}" style="background:${c}" title="${c}"></span>`)
+                .on('click', () => setShapeColor(c)).appendTo($sc);
+        });
+        $(`<span class="mb-tc-swatch mb-tc-more" title="Выбрать цвет"><i class="fa-solid fa-plus"></i></span>`)
+            .on('click', async () => {
+                const pickedColor = await mbColorPicker('Цвет рамки', card.shapeColor || '#fdf6e3');
+                if (pickedColor) setShapeColor(pickedColor);
+            }).appendTo($sc);
+        $body.append('<div class="mb-select-hint">Красится сама «бумага» рамки — картон билета, поле полароида, лента скотча. Отделка, по которой рамка узнаётся — зубцы марки, перфорация плёнки, линейка тетради — остаётся своей. Запрет ⃠ возвращает исходный вид.</div>');
+    }
+
+    // The thin band across the top of a card. Most frames hide it — a polaroid or
+    // a ticket has no room for one — so the control appears only where there is
+    // actually a strip to colour, rather than asking about something invisible.
+    // Asked of the live element instead of a list of shape names, so it stays
+    // right no matter which frame hides it.
+    const stripEl = $card && $card.find('.mb-card-color-strip')[0];
+    if (stripEl && getComputedStyle(stripEl).display !== 'none') {
+        $body.append('<span class="mb-settings-label">Цвет полоски</span>');
+        const $st = $('<div class="mb-textcolor"></div>').appendTo($body);
+        const setStripColor = (val) => {
+            card.color = val;
+            $card.find('.mb-card-color-strip').css('background', val);
+            refreshNotePreview();
+            save(true);
+            openStylePanel(card, $card);
+        };
+        // The six it used to step through, still one tap each — plus anything else.
+        cardColors.forEach(c => {
+            $(`<span class="mb-tc-swatch ${(card.color || '').toLowerCase() === c ? 'active' : ''}" style="background:${c}" title="${c}"></span>`)
+                .on('click', () => setStripColor(c)).appendTo($st);
+        });
+        $(`<span class="mb-tc-swatch mb-tc-more" title="Выбрать цвет"><i class="fa-solid fa-plus"></i></span>`)
+            .on('click', async () => {
+                const pickedColor = await mbColorPicker('Цвет полоски', card.color || '#fdf6e3');
+                if (pickedColor) { rememberColor(pickedColor); setStripColor(pickedColor); }
+            }).appendTo($st);
+    }
 
     if (custom.length) {
         $body.append('<span class="mb-settings-label">Мои рамки</span>');
@@ -5943,7 +6024,14 @@ function renderCard(card, animate, target) {
     // Everything a card can be changed about lives behind this one button.
     const styleBtn = `<div class="mb-card-act-btn style" title="Редактировать"><i class="fa-solid fa-pencil"></i></div>`;
     const writeBtn = '';
-    const editBtn = isSticker ? '' : `<div class="mb-card-act-btn edit" title="Change color"><i class="fa-solid fa-palette"></i></div>`;
+    // The palette used to sit here and step the colour strip through six fixed
+    // tints, one tap at a time. It was the last thing on a card that changed its
+    // look from outside the pencil panel — so next to a panel that now holds the
+    // frame, its colour, the font, the text colour and the size, a second button
+    // that silently does a seventh thing is just a question to answer. The strip
+    // moved into the panel with everything else, where it can be any colour
+    // rather than one of six.
+    const editBtn = '';
     const lockBtn = `<div class="mb-card-act-btn lock" title="Pin / Unpin"><i class="fa-solid fa-thumbtack" style="${card.locked ? 'color:var(--mb-accent)' : ''}"></i></div>`;
     const pinHtml = isSticker ? '' : `<div class="mb-card-pin"></div>`;
     const stripHtml = isSticker ? '' : `<div class="mb-card-color-strip" style="background:${card.color || '#fdf6e3'}"></div>`;
@@ -5963,6 +6051,7 @@ function renderCard(card, animate, target) {
     </div>`);
 
     applyCardTypography($card, card, isImg || isCollage || isTree);
+    applyShapeColor($card, card);
     applyCustomFrameSizing($card, card);
     if (card.locked) $card.addClass('is-locked');
     // A collage caption is text like any other, so it is typed in the panel too.
@@ -5998,12 +6087,6 @@ function renderCard(card, animate, target) {
         $(this).find('i').css('color', card.locked ? 'var(--mb-accent)' : '');
         $card.toggleClass('is-locked', card.locked);
         save();
-    });
-    $card.find('.edit').on('pointerup', function(e) {
-        e.stopPropagation();
-        if (card.locked) return;
-        card.color = cardColors[(cardColors.indexOf(card.color) + 1) % cardColors.length];
-        $card.find('.mb-card-color-strip').css('background', card.color); save();
     });
     $card.find('.style').on('pointerup', function(e) {
         e.stopPropagation();

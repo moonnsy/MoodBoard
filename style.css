@@ -240,7 +240,9 @@
 .mb-card.has-size { max-width: none !important; min-width: 0 !important; }
 .mb-card {
     position: absolute; min-width: 140px; max-width: 320px;
-    background: var(--mb-card-bg); border-radius: 6px;
+    /* Covers the plain card and .shape-rounded, which add no background of their
+       own. Shapes that do paint their own surface override this below. */
+    background: var(--mb-shape, var(--mb-card-bg)); border-radius: 6px;
     box-shadow: var(--mb-card-shadow);
     z-index: 5; cursor: grab; user-select: none;
     transition: box-shadow 0.2s;
@@ -526,9 +528,21 @@
 .mb-card.is-sticker::before, .mb-card.is-sticker::after { display: none !important; }
 .mb-card.is-sticker .mb-card-resize { right: -6px; bottom: -6px; }
 
+/* ===== RECOLOURING THE BUILT-IN SHAPES =====
+   Every shape below states its own colour as `var(--mb-shape, <what it always
+   was>)`. The card sets --mb-shape only when one has been chosen, so with
+   nothing chosen each fallback is the literal value that used to be there and
+   the shape looks exactly as it always did.
+
+   The variable is put on the surface that reads as the shape's *material* — the
+   polaroid's paper, the ticket's card, the tape's strip, the film's body. Trim
+   that carries the shape's identity (the stamp's perforation, the film's
+   sprocket dashes, the notebook's ruling) is left alone: tinting that too turns
+   a recoloured shape into a flat blob and loses the thing being recoloured. */
+
 /* Shapes */
 .mb-card.shape-polaroid {
-    padding: 10px 10px 40px 10px; background: #fff !important;
+    padding: 10px 10px 40px 10px; background: var(--mb-shape, #fff) !important;
     border-radius: 2px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
 }
 .mb-card.shape-polaroid .mb-card-color-strip { display: none; }
@@ -553,7 +567,7 @@
 .mb-card.shape-tape .mb-card-color-strip, .mb-card.shape-tape .mb-card-pin { display: none; }
 .mb-card.shape-tape::after {
     content: ''; position: absolute; top: -10px; left: 50%; transform: translateX(-50%) rotate(-2deg);
-    width: 80px; height: 25px; background: rgba(255,255,255,0.4);
+    width: 80px; height: 25px; background: var(--mb-shape, rgba(255,255,255,0.4));
     box-shadow: 0 1px 3px rgba(0,0,0,0.1); backdrop-filter: blur(2px);
     clip-path: polygon(0 5%, 100% 0, 95% 95%, 5% 100%); z-index: 5;
 }
@@ -567,20 +581,20 @@
     filter: drop-shadow(0 4px 6px rgba(0,0,0,0.15));
 }
 .mb-card.shape-torn .mb-card-content {
-    background: var(--mb-card-bg);
+    background: var(--mb-shape, var(--mb-card-bg));
     clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), 95% 100%, 90% calc(100% - 8px), 85% 100%, 80% calc(100% - 5px), 75% 100%, 70% calc(100% - 9px), 65% 100%, 60% calc(100% - 5px), 55% 100%, 50% calc(100% - 10px), 45% 100%, 40% calc(100% - 6px), 35% 100%, 30% calc(100% - 9px), 25% 100%, 20% calc(100% - 4px), 15% 100%, 10% calc(100% - 8px), 5% 100%, 0 calc(100% - 10px));
 }
 .mb-card.shape-torn .mb-card-color-strip { display: none; }
 
 
 /* Stamp Shape */
-.mb-card.shape-stamp { border-radius: 8px !important; padding: 12px; background: #fff !important; }
+.mb-card.shape-stamp { border-radius: 8px !important; padding: 12px; background: var(--mb-shape, #fff) !important; }
 .mb-card.shape-stamp .mb-card-content, .mb-card.shape-stamp .mb-card-content-wrap, .mb-card.shape-stamp img { border: 3px dotted #999; border-radius: 4px !important; }
 .mb-card.shape-stamp .mb-card-color-strip { display: none; }
 
 /* Film Shape */
-.mb-card.shape-film { background: #111 !important; padding: 12px 0; border-radius: 4px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important; color: #fff; }
-.mb-card.shape-film .mb-card-content-wrap, .mb-card.shape-film .mb-card-content { border-top: 4px dashed #444; border-bottom: 4px dashed #444; padding: 8px 0; background: #111; border-radius: 0 !important; width: 100%; }
+.mb-card.shape-film { background: var(--mb-shape, #111) !important; padding: 12px 0; border-radius: 4px !important; box-shadow: 0 4px 12px rgba(0,0,0,0.6) !important; color: #fff; }
+.mb-card.shape-film .mb-card-content-wrap, .mb-card.shape-film .mb-card-content { border-top: 4px dashed #444; border-bottom: 4px dashed #444; padding: 8px 0; background: var(--mb-shape, #111); border-radius: 0 !important; width: 100%; }
 .mb-card.shape-film img { border-radius: 0 !important; width: 100%; object-fit: cover; }
 .mb-card.shape-film .mb-card-color-strip, .mb-card.shape-film .mb-card-pin { display: none; }
 
@@ -822,7 +836,9 @@
 /* ===== NEW CARD FRAMES ===== */
 .mb-card.shape-gold {
     border: 5px solid transparent; border-radius: 3px !important;
-    background-image: linear-gradient(var(--mb-card-bg), var(--mb-card-bg)),
+    /* The first layer is the paper inside the metal; the second is the metal
+       itself, which is what makes the frame gold — so only the paper tints. */
+    background-image: linear-gradient(var(--mb-shape, var(--mb-card-bg)), var(--mb-shape, var(--mb-card-bg))),
                       linear-gradient(135deg, #a97c1e, #ffe9a8 25%, #c9a227 50%, #fff3c4 75%, #a97c1e);
     background-origin: border-box; background-clip: padding-box, border-box;
     box-shadow: 0 4px 14px rgba(0,0,0,0.35) !important;
@@ -830,8 +846,10 @@
 .mb-card.shape-gold .mb-card-color-strip, .mb-card.shape-gold .mb-card-pin { display: none; }
 
 .mb-card.shape-double {
-    border: 1px solid var(--mb-card-text); border-radius: 2px !important;
-    outline: 1px solid var(--mb-card-text); outline-offset: 4px;
+    /* Two rules, and the pair *is* the shape, so here the colour goes on them
+       rather than on the paper behind. */
+    border: 1px solid var(--mb-shape, var(--mb-card-text)); border-radius: 2px !important;
+    outline: 1px solid var(--mb-shape, var(--mb-card-text)); outline-offset: 4px;
     padding: 5px;
 }
 .mb-card.shape-double .mb-card-color-strip { display: none; }
@@ -840,7 +858,7 @@
    so it survives PNG export intact. */
 .mb-card.shape-notebook {
     border-radius: 2px !important;
-    background-color: var(--mb-card-bg) !important;
+    background-color: var(--mb-shape, var(--mb-card-bg)) !important;
     background-image:
         linear-gradient(to right, transparent 26px, rgba(210,90,90,0.45) 26px, rgba(210,90,90,0.45) 27px, transparent 27px),
         repeating-linear-gradient(to bottom, transparent 0 25px, rgba(70,110,160,0.28) 25px 26px);
@@ -850,7 +868,7 @@
 .mb-card.shape-notebook .mb-card-color-strip { display: none; }
 
 .mb-card.shape-shadowbox {
-    border: 1px solid var(--mb-border); border-radius: 2px !important; padding: 12px;
+    border: 1px solid var(--mb-shape, var(--mb-border)); border-radius: 2px !important; padding: 12px;
     box-shadow: 8px 8px 0 rgba(0,0,0,0.28) !important;
 }
 .mb-card.shape-shadowbox .mb-card-color-strip { display: none; }
@@ -860,7 +878,9 @@
 .mb-card.shape-washi::before, .mb-card.shape-washi::after {
     content: ''; position: absolute; top: -9px;
     width: 54px; height: 20px; z-index: 6;
-    background: repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 6px, rgba(205,185,228,0.6) 6px 12px);
+    /* Only the coloured stripe follows the picked colour — the pale one is what
+       keeps washi tape reading as tape rather than a solid bar. */
+    background: repeating-linear-gradient(45deg, rgba(255,255,255,0.6) 0 6px, var(--mb-shape, rgba(205,185,228,0.6)) 6px 12px);
     box-shadow: 0 1px 3px rgba(0,0,0,0.18);
 }
 .mb-card.shape-washi::before { left: -12px; transform: rotate(-28deg); }
@@ -871,7 +891,7 @@
     filter: drop-shadow(0 3px 6px rgba(0,0,0,0.28));
 }
 .mb-card.shape-ticket .mb-card-content {
-    background: var(--mb-card-bg); padding: 16px 24px;
+    background: var(--mb-shape, var(--mb-card-bg)); padding: 16px 24px;
     -webkit-mask: radial-gradient(circle at 0 50%, transparent 11px, #000 11.5px),
                   radial-gradient(circle at 100% 50%, transparent 11px, #000 11.5px);
     -webkit-mask-composite: source-in;
@@ -882,7 +902,9 @@
 .mb-card.shape-ticket .mb-card-color-strip, .mb-card.shape-ticket .mb-card-pin { display: none; }
 
 .mb-card.shape-postit {
-    background: linear-gradient(160deg, #fff8a8, #ffe97a) !important;
+    /* A whole gradient as the fallback: unset, the note keeps its own two-tone
+       yellow; set, the flat colour simply replaces it. */
+    background: var(--mb-shape, linear-gradient(160deg, #fff8a8, #ffe97a)) !important;
     border-radius: 0 0 0 26px !important;
     box-shadow: 3px 5px 12px rgba(0,0,0,0.3) !important;
     transform: rotate(-1.2deg);
@@ -1986,8 +2008,13 @@
 .mb-note-preview:empty::before {
     content: 'пусто'; opacity: 0.45; font-size: 0.85em;
 }
+/* No padding override here on purpose. This used to force `padding: 0`, which
+   pressed the text flat against the card's own edge — ascenders touched the top
+   border and the first letter sat under the rounded corner. The preview is a
+   real card and says so; it should be spaced like one, and each shape's own
+   padding rule (ticket, polaroid, film…) still wins over this on specificity. */
 .mb-note-preview .mb-card-content {
-    padding: 0; user-select: text; -webkit-user-select: text;
+    user-select: text; -webkit-user-select: text;
     white-space: pre-wrap; word-break: break-word;
 }
 /* An empty note on the board says what to do with it rather than sitting blank. */
