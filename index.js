@@ -1105,6 +1105,7 @@ function syncSettingsUI() {
     $('#mb-custom-prompt').val(boards.global?.customPrompt || '');
     $('#mb-tg-quote').prop('checked', uiPref('showQuoteBtn'));
     $('#mb-tg-image').prop('checked', uiPref('showImageBtn'));
+    $('#mb-tg-zoomq').prop('checked', uiPref('zoomQuality'));
     $('#mb-tg-charcard').prop('checked', sendPref('sendCharCard'));
     $('#mb-tg-persona').prop('checked', sendPref('sendPersona'));
     $('#mb-tg-lore').prop('checked', sendPref('sendLore'));
@@ -1418,7 +1419,14 @@ async function analyzeBoard() {
 
         uncullCards(); // hidden cards must be visible or they won't be captured
         await awaitCardImages();
-        await useFullResImages(true);
+        // Deliberately NOT swapping in the full-size originals. This capture is
+        // capped at 1400px across the whole board, so a card ends up a couple of
+        // hundred pixels wide — the ~520px preview already carries more detail
+        // than survives. Pulling in the originals meant decoding every photo on
+        // the board, at full size, for an image that throws almost all of it
+        // away: on a phone that is the single hottest moment in the extension.
+        // PNG export still swaps them in, because there the resolution is the
+        // whole point.
 
         // With a selection active, capture only those cards: crop to their box
         // and drop the rest from the copy. Drawings inside that box come along,
@@ -1440,6 +1448,7 @@ async function analyzeBoard() {
                 if (!picked.has(el.dataset.id)) el.remove();
             });
         }
+        normalizeCloneColors(clone);
 
         await paintInkOntoClone(clone);
 
@@ -2212,6 +2221,10 @@ function buildUI() {
                 </div>
                 <div class="mb-select-hint">Свои кнопки — увеличить, перерисовать, удалить — SillyTavern держит вдоль верхнего края картинки, и на узком экране наша кнопка попадала прямо под корзину. Поэтому по умолчанию она внизу справа; если у вашей темы занят другой угол, выберите свободный.</div>
 
+                <span class="mb-settings-label" style="margin-top:20px">Картинки</span>
+                ${switchRow('mb-tg-zoomq', 'Чёткость при увеличении', 'Подставлять оригинал, когда картинка крупная на экране')}
+                <div class="mb-select-hint">Обычно доска показывает лёгкие превью. Когда картинка занимает на экране больше, чем превью может дать, вместо него подставляется оригинал — и убирается обратно, как только она уезжает из кадра. Это заметно нагружает телефон; выключите, если чёткость при увеличении не нужна. Затрагиваются только те картинки, центр которых сейчас в кадре.</div>
+
                 <span class="mb-settings-label" style="margin-top:20px">Свои рамки</span>
                 <button class="mb-settings-btn secondary" id="mb-add-frame"><i class="fa-solid fa-plus"></i> Загрузить рамку (PNG)</button>
                 <input type="file" id="mb-frame-file" accept="image/png,image/webp" multiple style="display:none">
@@ -2652,6 +2665,77 @@ function precropCoverImages(clone) {
     return Promise.all(jobs);
 }
 
+// ===== COLOURS THE RASTERIZER CANNOT READ =====
+// html2canvas has its own CSS colour parser, and it stops at the notations that
+// arrived after it was written: color(srgb …), oklch(), oklab(), lab(), lch().
+// One of those anywhere in the captured subtree aborts the whole capture with
+// "Attempting to parse an unsupported color function" — which is what stopped a
+// board going to the character as soon as a note carried any formatting, since
+// those spans inherit their colour from whatever the Tavern theme resolved to.
+//
+// The browser can always paint a colour it can parse, so it is asked to: the
+// value goes into a 1×1 canvas and comes back as plain rgba. That works for
+// every notation there is, including ones that do not exist yet.
+const MODERN_COLOR = /\b(?:color|oklch|oklab|lab|lch|color-mix)\(/;
+let colorProbeCtx = null;
+const colorCache = new Map();
+function toPlainColor(value) {
+    if (colorCache.has(value)) return colorCache.get(value);
+    let out = value;
+    try {
+        if (!colorProbeCtx) {
+            const c = document.createElement('canvas');
+            c.width = c.height = 1;
+            colorProbeCtx = c.getContext('2d', { willReadFrequently: true });
+        }
+        colorProbeCtx.clearRect(0, 0, 1, 1);
+        colorProbeCtx.fillStyle = '#000';
+        colorProbeCtx.fillStyle = value;      // ignored if the browser can't parse it either
+        colorProbeCtx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = colorProbeCtx.getImageData(0, 0, 1, 1).data;
+        out = `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+    } catch (e) { /* leave it alone; the capture may still cope */ }
+    colorCache.set(value, out);
+    return out;
+}
+
+// Every property whose value html2canvas parses as a colour. Kebab-case,
+// because these go through setProperty — see below.
+const COLOR_PROPS = [
+    'color', 'background-color', 'border-top-color', 'border-right-color',
+    'border-bottom-color', 'border-left-color', 'outline-color',
+    'text-decoration-color', 'caret-color', 'column-rule-color',
+];
+const EFFECT_PROPS = ['background-image', 'box-shadow', 'text-shadow'];
+// Must be called once the clone is in the document: it reads the clone's own
+// computed styles, which is what makes this independent of how many cards were
+// removed from it beforehand.
+function normalizeCloneColors(clone) {
+    let fixed = 0;
+    for (const el of [clone, ...clone.querySelectorAll('*')]) {
+        const cs = getComputedStyle(el);
+        for (const prop of COLOR_PROPS) {
+            const v = cs.getPropertyValue(prop);
+            if (!v || !MODERN_COLOR.test(v)) continue;
+            // `important`, and not by preference: themes and extensions routinely
+            // set their colours that way, and a plain inline style loses to them
+            // — leaving the value the rasterizer chokes on right where it was.
+            el.style.setProperty(prop, toPlainColor(v), 'important');
+            fixed++;
+        }
+        // Gradients and shadows carry colours too, through the same parser.
+        for (const prop of EFFECT_PROPS) {
+            const v = cs.getPropertyValue(prop);
+            if (!v || v === 'none' || !MODERN_COLOR.test(v)) continue;
+            // Not worth reconstructing: dropping the effect keeps the capture,
+            // and a missing shadow beats no picture at all.
+            el.style.setProperty(prop, 'none', 'important');
+            fixed++;
+        }
+    }
+    if (fixed) console.info(LOG, `rewrote ${fixed} colour value(s) the rasterizer cannot read`);
+}
+
 // Belt and braces around the culler: whatever state the live board was in, every
 // card in the copy we are about to rasterize is awake and carries its picture.
 function wakeCloneCards(clone) {
@@ -2965,7 +3049,8 @@ async function exportPng(quality) {
         // Unlike the AI snapshot, a saved PNG gets the board colour behind it —
         // a transparent cut-out of scattered cards is not what you want to share.
         const boardBg = getComputedStyle(document.getElementById('mb-canvas-area')).backgroundColor;
-        prepareCloneForExport(clone, boardBg);
+        prepareCloneForExport(clone, toPlainColor(boardBg));
+        normalizeCloneColors(clone);
         await precropCoverImages(clone);
         // Aim for a long edge around 3000px and allow genuine upscaling for small
         // boards — capping at 2x meant a compact board exported at barely 1000px
@@ -3441,6 +3526,12 @@ function bindEvents() {
         boards.global.imgBtnPos = $(this).data('pos');
         save();
         applyPinPos();
+    });
+    $('#mb-tg-zoomq').on('change', function() {
+        setUiPref('zoomQuality', this.checked);
+        // Takes effect at once, in both directions: switching it off hands every
+        // full-size bitmap currently on the board back to the system.
+        refreshImgTiers();
     });
     $('#mb-tg-image').on('change', function() {
         setUiPref('showImageBtn', this.checked);
@@ -4451,7 +4542,7 @@ async function backfillThumbs(force) {
         if (force) showBusyText(`Делаю превью… ${made} из ${total}`);
         const img = document.querySelector(`.mb-card[data-id="${card.id}"] .mb-card-content-wrap > img`);
         if (img) {
-            const want = bestSrcFor(card);
+            const want = bestSrcFor(card, img.closest('.mb-card'));
             if (img.dataset.mbSrc) img.dataset.mbSrc = want;
             else img.setAttribute('src', want);
         }
@@ -5393,25 +5484,43 @@ function clampCardW(w) { return Math.round(Math.max(CARD_W_MIN, Math.min(CARD_W_
 // between a 0.5 MB decoded bitmap and a 10 MB one, per card, for no visible gain.
 //
 // What matters is how many device pixels the picture actually covers.
-function bestSrcFor(card) {
+// Is the middle of this card actually on screen? A picture only half in frame
+// gained nothing from the original — you cannot see the half that is missing —
+// but it cost the same memory as one you were looking at, and panning across a
+// board would light up every photo it dragged past.
+function cardCentreOnScreen(card, el) {
+    const area = document.getElementById('mb-canvas-area');
+    if (!area) return false;
+    const w = el?.offsetWidth || card.w || 220;
+    const h = el?.offsetHeight || w;
+    const cx = (card.x + w / 2) * zoom + panX;
+    const cy = (card.y + h / 2) * zoom + panY;
+    return cx >= 0 && cx <= area.clientWidth && cy >= 0 && cy <= area.clientHeight;
+}
+
+function bestSrcFor(card, el) {
     if (!card || !card.content) return '';
     if (!card.thumb) return card.content;              // there is only one copy
+    if (!uiPref('zoomQuality')) return card.thumb;     // switched off in settings
     const cap = window.innerWidth <= 768 ? 2 : 3;
     const dpr = Math.min(window.devicePixelRatio || 1, cap);
     const onScreen = (card.w || 220) * zoom * dpr;
     // The margin is slack, not precision: it keeps a card parked exactly on the
     // boundary from swapping its source back and forth on every nudge of the zoom.
-    return onScreen > IMG_THUMB_DIM * 1.15 ? card.content : card.thumb;
+    if (onScreen <= IMG_THUMB_DIM * 1.15) return card.thumb;
+    return cardCentreOnScreen(card, el) ? card.content : card.thumb;
 }
 
-// Re-checks that choice for every card on the board. Only zoom can change the
-// answer, so this is driven from the zoom settle rather than from every frame.
+// Re-checks that choice for every card on the board, in both directions: a card
+// that leaves the frame goes back to its preview, which is what actually hands
+// the large bitmap back to the system.
 function refreshImgTiers() {
     const byId = new Map((getBoard().cards || []).map(c => [c.id, c]));
     for (const img of document.querySelectorAll('#mb-canvas-inner .mb-card > .mb-card-content-wrap > img')) {
-        const card = byId.get(img.closest('.mb-card')?.dataset.id);
+        const el = img.closest('.mb-card');
+        const card = byId.get(el?.dataset.id);
         if (!card || !card.content) continue;
-        const want = bestSrcFor(card);
+        const want = bestSrcFor(card, el);
         if (!want) continue;
         // Asleep behind the blank pixel: correct what it will wake up as, and
         // leave the sleeping <img> alone.
@@ -5426,7 +5535,7 @@ function setCardWidth(card, $card, w) {
     applyCustomFrameSizing($card, card);
     const img = $card.find('img')[0];
     if (img && (card.type === 'image' || card.type === 'sticker') && card.content) {
-        const want = bestSrcFor(card);
+        const want = bestSrcFor(card, $card[0]);
         if (img.dataset.mbSrc) img.dataset.mbSrc = want;   // asleep right now; wake up with the right one
         else if (img.getAttribute('src') !== want) img.setAttribute('src', want);
     }
@@ -5688,7 +5797,7 @@ function openStylePanel(card, $card) {
                     if (img.thumb) card.thumb = img.thumb; else delete card.thumb;
                     card.origW = img.origW;
                     delete card.noThumb;
-                    $card.find('img').attr('src', bestSrcFor(card));
+                    $card.find('img').attr('src', bestSrcFor(card, $card[0]));
                     save(true);
                     openStylePanel(card, $card);   // refresh the reported size
                     toastr?.success('Картинка заменена');
@@ -5810,9 +5919,15 @@ function renderCard(card, animate, target) {
         contentHtml = collageHtml(card);
     } else if (isImg) {
         // Whichever copy this card's on-screen size actually calls for — usually
-        // the preview. The original is pulled in for PNG export / AI regardless.
+        // the preview. The original is pulled in for PNG export regardless.
+        //
+        // `width:100%`, not just `max-width`. With only a maximum, an image
+        // stops growing at its own pixel width while the card keeps going, so
+        // dragging a card past that point stretched bare card background out to
+        // the side of the picture instead of enlarging it. The card's width is
+        // set by hand and is the whole intent — the picture should fill it.
         const src = bestSrcFor(card);
-        contentHtml = `<div class="mb-card-content-wrap"><img src="${src}" draggable="false" decoding="async" style="max-width:100%;display:block;${isSticker ? '' : 'border-radius:4px;'}"></div>`;
+        contentHtml = `<div class="mb-card-content-wrap"><img src="${src}" draggable="false" decoding="async" style="width:100%;max-width:100%;height:auto;display:block;${isSticker ? '' : 'border-radius:4px;'}"></div>`;
     } else {
         // Not editable until tapped. While a note is permanently contenteditable
         // the browser owns pointer events over the text, so pressing there never
@@ -8708,16 +8823,15 @@ function onWheel(e) {
     saveCamera();
 }
 
-// Zoom, and only zoom, changes how many device pixels a picture covers — so it
-// is the one thing that can change which copy a card should be showing. Panning
-// cannot. Debounced past the end of the gesture: swapping sources mid-pinch
-// would decode new bitmaps in the middle of the only moment that has to stay
-// smooth.
-let tierZoom = -1, tierTimer = null;
+// Zoom changes how many device pixels a picture covers; panning changes which
+// pictures are in front of you. Both can change which copy a card should be
+// showing, so this runs after either — but only once the hand has come off.
+// Swapping sources mid-gesture would decode new bitmaps during the one moment
+// that has to stay smooth.
+let tierTimer = null;
 function scheduleTierCheck() {
-    if (Math.abs(zoom - tierZoom) < 0.001) return;
     clearTimeout(tierTimer);
-    tierTimer = setTimeout(() => { tierZoom = zoom; refreshImgTiers(); }, 250);
+    tierTimer = setTimeout(refreshImgTiers, 250);
 }
 
 function updateTransform() {
