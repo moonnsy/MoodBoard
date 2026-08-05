@@ -69,7 +69,8 @@
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/\" -UseBasicParsing -TimeoutSec 4; \"RUNNING: $\\($r.StatusCode\\)\" } catch { \"not running on 8000: $\\($_.Exception.Message\\)\" })",
       "PowerShell($d='C:\\\\SillyTavern\\\\data\\\\default-user\\\\user\\\\files'; Copy-Item \"$d\\\\moodboard_data.json\" \"$env:TEMP\\\\mb_backup_real.json\" -Force; \"backed up: $\\(\\(Get-Item \"$env:TEMP\\\\mb_backup_real.json\"\\).Length\\) bytes\")",
       "PowerShell(Get-Content \"$env:TEMP\\\\mb_backup_real.json\" -Raw | Select-String -Pattern 'mb_img_[a-z0-9]+\\\\.\\(webp|jpg|png|gif\\)' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)",
-      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --stat -- index.js style.css)"
+      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --stat -- index.js style.css)",
+      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --numstat)"
     ]
   }
 }

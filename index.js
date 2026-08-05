@@ -2223,7 +2223,9 @@ function buildUI() {
 
                 <span class="mb-settings-label" style="margin-top:20px">Картинки</span>
                 ${switchRow('mb-tg-zoomq', 'Чёткость при увеличении', 'Подставлять оригинал, когда картинка крупная на экране')}
-                <div class="mb-select-hint">Обычно доска показывает лёгкие превью. Когда картинка занимает на экране больше, чем превью может дать, вместо него подставляется оригинал — и убирается обратно, как только она уезжает из кадра. Это заметно нагружает телефон; выключите, если чёткость при увеличении не нужна. Затрагиваются только те картинки, центр которых сейчас в кадре.</div>
+                <div class="mb-select-hint">Обычно доска показывает лёгкие превью. Когда картинка занимает на экране больше, чем превью может дать, вместо него подставляется оригинал — и убирается обратно, как только она уезжает из кадра. Одновременно так показывается всего одна картинка на телефоне (две-три на компьютере) — та, что ближе к середине экрана: именно отсутствие этого предела и валило вкладку на большой доске. Выключите совсем, если чёткость при увеличении не нужна.</div>
+                <button class="mb-settings-btn secondary" id="mb-shrink-images"><i class="fa-solid fa-compress"></i> Уменьшить крупные картинки</button>
+                <div class="mb-select-hint">Разово пережимает всё, что крупнее ${IMG_FULL_DIM} px, до ${IMG_FULL_DIM} px. Картинки, добавленные раньше, сохранялись до 2400 px — а распакованная 2400-пиксельная фотография занимает вдвое больше памяти, чем нужно доске. На вид не изменится, отменить нельзя.</div>
 
                 <span class="mb-settings-label" style="margin-top:20px">Свои рамки</span>
                 <button class="mb-settings-btn secondary" id="mb-add-frame"><i class="fa-solid fa-plus"></i> Загрузить рамку (PNG)</button>
@@ -3527,6 +3529,7 @@ function bindEvents() {
         save();
         applyPinPos();
     });
+    $('#mb-shrink-images').on('click', runShrinkNow);
     $('#mb-tg-zoomq').on('change', function() {
         setUiPref('zoomQuality', this.checked);
         // Takes effect at once, in both directions: switching it off hands every
@@ -4421,6 +4424,65 @@ function countInlineImages() {
     return n;
 }
 
+// ===== SHRINKING OVERSIZED ORIGINALS =====
+// Pictures pinned before the ceiling came down are stored at up to 2400px. What
+// that costs is not the file — it is the bitmap: a 2000×1400 photo occupies
+// about 11 MB of memory the moment it is decoded, against 7 MB at 1600px and
+// under 1 MB for its preview. On a board of two dozen such photos that
+// difference decides whether a phone survives being scrolled through.
+//
+// Lossy and irreversible, so it never happens on its own — this is only ever
+// reached from the button in settings, behind a confirmation.
+async function shrinkOversizedImages() {
+    const board = getBoard();
+    const cards = (board.cards || []).filter(c =>
+        (c.type === 'image' || c.type === 'sticker') && c.content && c.thumb);
+    if (!cards.length) return { done: 0, checked: 0 };
+    let done = 0, checked = 0;
+    migrating = true;
+    try {
+        for (const card of cards) {
+            if (!$('#mb-modal').is(':visible')) break;
+            if (getBoard() !== board) break;
+            await idleTick();
+            checked++;
+            showBusyText(`Проверяю картинки… ${checked} из ${cards.length}`);
+            const w = card.origW || await imgWidth(card.content);
+            if (!w) continue;
+            card.origW = w;
+            if (w <= IMG_FULL_DIM) continue;             // already within the ceiling
+            const smaller = await compressImageSrc(card.content, IMG_FULL_DIM, IMG_FULL_Q, true);
+            if (!smaller || smaller === card.content) continue;
+            const path = await storeImage(smaller);
+            if (path === smaller && isDataUrl(path)) continue;   // upload failed; leave it be
+            card.content = path;
+            card.origW = await imgWidth(path);
+            done++;
+            showBusyText(`Уменьшаю… ${done}`);
+        }
+    } finally { migrating = false; }
+    if (done || checked) save(true);
+    return { done, checked };
+}
+
+async function runShrinkNow() {
+    if (!await mbConfirm('Уменьшить крупные картинки?',
+            `Картинки крупнее ${IMG_FULL_DIM} px будут пережаты до ${IMG_FULL_DIM} px. ` +
+            `На доске и в PNG разницы не видно, а памяти телефон тратит заметно меньше. ` +
+            `Отменить нельзя — исходные пиксели не сохранятся.`,
+            { okLabel: 'Уменьшить' })) return;
+    await showBusy('Уменьшаю картинки…');
+    try {
+        const { done, checked } = await shrinkOversizedImages();
+        toastr?.success(done ? `Уменьшено картинок: ${done} из ${checked}`
+                             : `Проверено ${checked} — уменьшать нечего`);
+        renderBoard();
+    } catch (e) {
+        console.error(LOG, 'shrink failed', e);
+        toastr?.error('Не получилось: ' + (e.message || e));
+    } finally { hideBusy(); }
+}
+
 // Boards written before the image store existed carry their photos inline.
 // Interrupted at any point this is still correct: whatever moved is a path,
 // whatever did not is still a data URL, and both render.
@@ -4542,7 +4604,7 @@ async function backfillThumbs(force) {
         if (force) showBusyText(`Делаю превью… ${made} из ${total}`);
         const img = document.querySelector(`.mb-card[data-id="${card.id}"] .mb-card-content-wrap > img`);
         if (img) {
-            const want = bestSrcFor(card, img.closest('.mb-card'));
+            const want = bestSrcFor(card);
             if (img.dataset.mbSrc) img.dataset.mbSrc = want;
             else img.setAttribute('src', want);
         }
@@ -5498,30 +5560,67 @@ function cardCentreOnScreen(card, el) {
     return cx >= 0 && cx <= area.clientWidth && cy >= 0 && cy <= area.clientHeight;
 }
 
-function bestSrcFor(card, el) {
+// The copy a card shows unless something promotes it — always the preview.
+//
+// This deliberately never answers "the original". Handing every eligible card
+// its full-size copy is what took a phone down: a 2000×1400 photo is about 11 MB
+// once decoded, and a board of twenty-six of them can ask for a quarter of a
+// gigabyte of bitmap in one pass. Promotion is rationed, and it happens in
+// exactly one place — refreshImgTiers below.
+function bestSrcFor(card) {
     if (!card || !card.content) return '';
-    if (!card.thumb) return card.content;              // there is only one copy
-    if (!uiPref('zoomQuality')) return card.thumb;     // switched off in settings
-    const cap = window.innerWidth <= 768 ? 2 : 3;
-    const dpr = Math.min(window.devicePixelRatio || 1, cap);
-    const onScreen = (card.w || 220) * zoom * dpr;
-    // The margin is slack, not precision: it keeps a card parked exactly on the
-    // boundary from swapping its source back and forth on every nudge of the zoom.
-    if (onScreen <= IMG_THUMB_DIM * 1.15) return card.thumb;
-    return cardCentreOnScreen(card, el) ? card.content : card.thumb;
+    return card.thumb || card.content;
 }
 
-// Re-checks that choice for every card on the board, in both directions: a card
-// that leaves the frame goes back to its preview, which is what actually hands
-// the large bitmap back to the system.
+// Is this card worth its original, ignoring how many others also are?
+function wantsSharp(card, el) {
+    if (!card.thumb) return false;                     // there is only one copy
+    if (!uiPref('zoomQuality')) return false;          // switched off in settings
+    const cap = window.innerWidth <= 768 ? 2 : 3;
+    const dpr = Math.min(window.devicePixelRatio || 1, cap);
+    // The margin is slack, not precision: it keeps a card parked exactly on the
+    // boundary from swapping its source back and forth on every nudge of the zoom.
+    if ((card.w || 220) * zoom * dpr <= IMG_THUMB_DIM * 1.15) return false;
+    return cardCentreOnScreen(card, el);
+}
+
+// How many originals may be decoded at once, whatever the board holds.
+//
+// This is the ceiling that was missing. Without it the cost scaled with the
+// board: panning across twenty-six 2K photos promoted them one after another,
+// nothing bounded the total, and the tab was killed — on one report taking
+// Android's system UI down with it. With it, the worst case is a fixed handful
+// of pictures no matter how large the board grows.
+function sharpBudget() {
+    const mem = navigator.deviceMemory || 4;           // absent on iOS; assume modest
+    if (window.innerWidth <= 768 || mem <= 4) return 1;
+    return mem >= 8 ? 3 : 2;
+}
+
+// The one place that promotes, and it demotes everything else in the same pass —
+// which is what actually hands the large bitmaps back. Cards nearest the middle
+// of the screen win the budget, because that is where you are looking.
 function refreshImgTiers() {
+    const area = document.getElementById('mb-canvas-area');
+    if (!area) return;
     const byId = new Map((getBoard().cards || []).map(c => [c.id, c]));
+    const midX = area.clientWidth / 2, midY = area.clientHeight / 2;
+    const plan = new Map();      // img -> the src it should end up with
+    const eligible = [];
     for (const img of document.querySelectorAll('#mb-canvas-inner .mb-card > .mb-card-content-wrap > img')) {
         const el = img.closest('.mb-card');
         const card = byId.get(el?.dataset.id);
         if (!card || !card.content) continue;
-        const want = bestSrcFor(card, el);
-        if (!want) continue;
+        plan.set(img, bestSrcFor(card));               // preview by default
+        if (!wantsSharp(card, el)) continue;
+        const w = el.offsetWidth || card.w || 220, h = el.offsetHeight || w;
+        const cx = (card.x + w / 2) * zoom + panX, cy = (card.y + h / 2) * zoom + panY;
+        eligible.push({ img, card, dist: Math.hypot(cx - midX, cy - midY) });
+    }
+    eligible.sort((a, b) => a.dist - b.dist);
+    for (const e of eligible.slice(0, sharpBudget())) plan.set(e.img, e.card.content);
+
+    for (const [img, want] of plan) {
         // Asleep behind the blank pixel: correct what it will wake up as, and
         // leave the sleeping <img> alone.
         if (img.dataset.mbSrc) { img.dataset.mbSrc = want; continue; }
@@ -5535,7 +5634,9 @@ function setCardWidth(card, $card, w) {
     applyCustomFrameSizing($card, card);
     const img = $card.find('img')[0];
     if (img && (card.type === 'image' || card.type === 'sticker') && card.content) {
-        const want = bestSrcFor(card, $card[0]);
+        // Back to the preview; the tier pass below decides whether this card is
+        // one of the few that earns its original at the new size.
+        const want = bestSrcFor(card);
         if (img.dataset.mbSrc) img.dataset.mbSrc = want;   // asleep right now; wake up with the right one
         else if (img.getAttribute('src') !== want) img.setAttribute('src', want);
     }
@@ -5543,6 +5644,7 @@ function setCardWidth(card, $card, w) {
     save();
     renderInk();
     scheduleCull();
+    scheduleTierCheck();
 }
 
 // The size row every panel shares: a slider that reaches far past the screen,
@@ -5824,7 +5926,8 @@ function openStylePanel(card, $card) {
                     if (img.thumb) card.thumb = img.thumb; else delete card.thumb;
                     card.origW = img.origW;
                     delete card.noThumb;
-                    $card.find('img').attr('src', bestSrcFor(card, $card[0]));
+                    $card.find('img').attr('src', bestSrcFor(card));
+                    scheduleTierCheck();
                     save(true);
                     openStylePanel(card, $card);   // refresh the reported size
                     toastr?.success('Картинка заменена');
@@ -8911,10 +9014,22 @@ function onWheel(e) {
 // showing, so this runs after either — but only once the hand has come off.
 // Swapping sources mid-gesture would decode new bitmaps during the one moment
 // that has to stay smooth.
-let tierTimer = null;
+//
+// The ceiling matters as much as the delay. A long unbroken drag across the
+// board kept pushing the check back, so pictures promoted before it started
+// stayed promoted for as long as the finger kept moving — and a slow browse
+// across a big board is exactly one long drag. It now runs at least once a
+// second regardless, so demotions keep happening mid-gesture even though
+// promotions still wait for the hand to stop.
+let tierTimer = null, tierDeadline = 0;
 function scheduleTierCheck() {
+    const now = Date.now();
+    if (!tierDeadline) tierDeadline = now + 1000;
     clearTimeout(tierTimer);
-    tierTimer = setTimeout(refreshImgTiers, 250);
+    tierTimer = setTimeout(() => {
+        tierDeadline = 0;
+        refreshImgTiers();
+    }, Math.max(0, Math.min(250, tierDeadline - now)));
 }
 
 function updateTransform() {
