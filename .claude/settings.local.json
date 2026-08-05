@@ -60,7 +60,16 @@
       "Bash(node framecheck.js)",
       "Bash(cp frames.html \"C:/SillyTavern/public/mb-frames.html\")",
       "Bash(find \"C:/SillyTavern/data\" -name \"moodboard_data.json\" 2>/dev/null | head)",
-      "Bash(sed -i \"s|C:/SillyTavern/data/default-user/files/moodboard_data.json|C:/SillyTavern/data/default-user/user/files/moodboard_data.json|\" framecheck.js)"
+      "Bash(sed -i \"s|C:/SillyTavern/data/default-user/files/moodboard_data.json|C:/SillyTavern/data/default-user/user/files/moodboard_data.json|\" framecheck.js)",
+      "PowerShell(Get-ChildItem -Path C:\\\\SillyTavern\\\\data -Recurse -Filter \"moodboard_data.json\" -ErrorAction SilentlyContinue | Select-Object FullName, @{n='MB';e={[math]::Round\\($_.Length/1MB,2\\)}})",
+      "PowerShell($p='C:\\\\SillyTavern\\\\data\\\\default-user\\\\user\\\\files\\\\moodboard_data.json'; $raw=Get-Content $p -Raw; \"file chars: $\\($raw.Length\\)\"; try { $j=[System.Text.Encoding]::UTF8.GetString\\([Convert]::FromBase64String\\($raw\\)\\); \"decoded chars: $\\($j.Length\\)\" } catch { \"not base64 at top level\" ; $raw.Substring\\(0,200\\) })",
+      "PowerShell(node --input-type=module -e \"1\")",
+      "PowerShell(node --check \"C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js\" 2>&1)",
+      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8000/\" -UseBasicParsing -TimeoutSec 4; \"RUNNING: $\\($r.StatusCode\\)\" } catch { \"not running on 8000: $\\($_.Exception.Message\\)\" })",
+      "PowerShell($d='C:\\\\SillyTavern\\\\data\\\\default-user\\\\user\\\\files'; Copy-Item \"$d\\\\moodboard_data.json\" \"$env:TEMP\\\\mb_backup_real.json\" -Force; \"backed up: $\\(\\(Get-Item \"$env:TEMP\\\\mb_backup_real.json\"\\).Length\\) bytes\")",
+      "PowerShell(Get-Content \"$env:TEMP\\\\mb_backup_real.json\" -Raw | Select-String -Pattern 'mb_img_[a-z0-9]+\\\\.\\(webp|jpg|png|gif\\)' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)",
+      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --stat -- index.js style.css)"
     ]
   }
 }

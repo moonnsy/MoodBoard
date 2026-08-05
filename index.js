@@ -45,6 +45,10 @@ function pokeViewport(times = 8) {
 // the page is reloaded. This just checks, twice a second, that the size on screen
 // still matches reality. syncViewport writes nothing when it already does, so the
 // cost of being wrong here is two number comparisons.
+//
+// Once a second rather than twice: this is a safety net for an event that failed
+// to arrive, not a mechanism anything depends on, and it ticks for as long as the
+// board is open.
 let vpWatchTimer = null;
 function startViewportWatch() {
     if (vpWatchTimer) return;
@@ -53,7 +57,7 @@ function startViewportWatch() {
             clearInterval(vpWatchTimer); vpWatchTimer = null; return;
         }
         syncViewport?.();
-    }, 500);
+    }, 1000);
 }
 let settingsOpen = false, aiPanelOpen = false, zoomTimer = null;
 // Pinch zoom state
@@ -174,6 +178,173 @@ async function refreshStamp() {
         const res = await fetch(SERVER_PATH + '?t=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
         if (res.ok) serverStamp = fileStamp(res);
     } catch (e) {}
+}
+
+// ===== IMAGE STORE =====
+// Pictures used to live inside the boards file as `data:` URLs, and that one
+// decision was the most expensive thing in the extension. Every save had to
+// re-clone, re-stringify and re-upload every photo on every board, because they
+// were all one JSON document — pinning a picture during a chat cost a full
+// megabyte-scale round of work, and so did nudging a card afterwards.
+//
+// A `data:` URL is also a JavaScript string, which means the browser must keep
+// its decoded bitmap alive for as long as the string is reachable. It can never
+// be evicted under memory pressure. That is what leaves a phone hot with the
+// board just sitting open.
+//
+// So each picture is now its own file beside the boards file, and the card holds
+// a path. The boards JSON stays in the kilobytes no matter how many photos are
+// pinned, and every <img> is an ordinary cacheable, evictable resource.
+//
+// Nothing here is load-bearing: if an upload fails, the data URL is kept as-is
+// and everything downstream still works, because every consumer only ever hands
+// the value to an <img src> or to `new Image()`. Both forms are equally valid
+// there. That is the whole compatibility story — there is no second code path.
+const IMG_PREFIX = 'mb_img_';
+// source string -> Promise<path>, for uploads that are in flight *right now*, so
+// two callers handing over the same picture at the same time get one file rather
+// than two. Entries are dropped the moment the upload settles, and that matters:
+// the key is the data URL itself, so a surviving entry would pin a megabyte of
+// string in memory long after the board had stopped referring to it.
+const imgUploads = new Map();
+
+// Whether this server can hold our pictures at all. Not every SillyTavern is the
+// same age, and an older /api/files/upload may not take what we send. Until one
+// tiny probe file has made the round trip, nothing large is attempted — the
+// alternative is discovering the problem one megabyte at a time, which is how a
+// phone ends up hot with nothing to show for it.
+let imgStore = 'unknown';           // 'unknown' | 'ok' | 'off'
+let imgStoreProbe = null;
+let imgFailStreak = 0;
+
+function isDataUrl(s) { return typeof s === 'string' && s.startsWith('data:'); }
+// Everything the extension stores that is not a data URL is already a path we
+// wrote ourselves, so this is only ever asked about strings that hold pixels.
+function isStoredImg(s) { return typeof s === 'string' && s.includes('/' + IMG_PREFIX); }
+
+const IMG_EXT = { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif' };
+// Deliberately not a regular expression. These strings run to millions of
+// characters, and a pattern ending in `(.+)$` makes the engine walk and then
+// copy the whole payload — per picture, on the main thread. indexOf and slice
+// do neither: V8 hands back a view onto the original string.
+function splitDataUrl(src) {
+    if (!isDataUrl(src)) return null;
+    const comma = src.indexOf(',');
+    if (comma < 0) return null;
+    const head = src.slice(5, comma);                 // past "data:"
+    if (!head.endsWith(';base64')) return null;       // only base64 payloads
+    const ext = IMG_EXT[head.slice(0, -7).toLowerCase()];
+    if (!ext) return null;                            // not something we can name
+    return { ext, b64: src.slice(comma + 1) };
+}
+
+// Names are random rather than a hash of the content. Hashing meant a
+// per-character pass over a multi-megabyte string for every single picture, and
+// on a phone that is seconds of blocked main thread each — the exact cost this
+// whole change exists to remove. Two copies of one picture costing two files is
+// a much better trade than that.
+function imgFileName(ext) { return IMG_PREFIX + genId() + Date.now().toString(36) + '.' + ext; }
+
+async function putImageFile(name, b64) {
+    // Built by concatenation, not JSON.stringify: base64 contains nothing JSON
+    // has to escape, so stringify would only mean one more full scan and one
+    // more full copy of the payload.
+    const body = '{"name":"' + name + '","data":"' + b64 + '"}';
+    const res = await fetch('/api/files/upload', { method: 'POST', headers: stHeaders(), body });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
+    const out = await res.json().catch(() => null);
+    const p = out?.path || ('user/files/' + name);
+    return p.startsWith('/') ? p : '/' + p;
+}
+
+// One 43-byte file, written and read back. Cheap enough to be free, and it is
+// the difference between "this works here" and grinding a phone through a whole
+// board's worth of uploads that were never going to land.
+function probeImageStore() {
+    if (imgStore !== 'unknown') return Promise.resolve(imgStore === 'ok');
+    if (imgStoreProbe) return imgStoreProbe;
+    imgStoreProbe = (async () => {
+        try {
+            const path = await putImageFile(IMG_PREFIX + 'probe.gif', BLANK_PX.slice(BLANK_PX.indexOf(',') + 1));
+            const back = await fetch(path, { cache: 'no-store' });
+            if (!back.ok) throw new Error('read back HTTP ' + back.status);
+            imgStore = 'ok';
+        } catch (e) {
+            imgStore = 'off';
+            console.warn(LOG, 'this server will not hold image files; pictures stay inside the boards file', e);
+        }
+        return imgStore === 'ok';
+    })();
+    return imgStoreProbe;
+}
+
+// Moves one data URL out to a file and answers with its path. Anything it cannot
+// handle comes back unchanged, which is always safe — see the note above.
+async function storeImage(src) {
+    if (!isDataUrl(src)) return src;
+    if (!await probeImageStore()) return src;
+    const hit = imgUploads.get(src);
+    if (hit) { try { return await hit; } catch (e) { return src; } }
+    const parts = splitDataUrl(src);
+    if (!parts) return src;
+    const job = putImageFile(imgFileName(parts.ext), parts.b64);
+    imgUploads.set(src, job);
+    try {
+        const path = await job;
+        imgFailStreak = 0;
+        return path;
+    } catch (e) {
+        console.warn(LOG, 'image upload failed, keeping it inline', e);
+        // A server that refuses three in a row is not going to take the fourth,
+        // and retrying is what turns a bad connection into a hot phone.
+        if (++imgFailStreak >= 3) {
+            imgStore = 'off';
+            console.warn(LOG, 'giving up on the image store for this session');
+        }
+        return src;
+    } finally {
+        imgUploads.delete(src);
+    }
+}
+
+// Several at once, in order, for the places that make a pair or a whole collage.
+function storeImages(list) { return Promise.all((list || []).map(s => storeImage(s))); }
+
+// The reverse trip, for the few callers that genuinely need bytes rather than a
+// src — re-encoding an existing picture, mainly.
+async function imgAsDataUrl(src) {
+    if (!src || isDataUrl(src)) return src;
+    try {
+        const res = await fetch(src, { cache: 'force-cache' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        return await new Promise((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(fr.result);
+            fr.onerror = reject;
+            fr.readAsDataURL(blob);
+        });
+    } catch (e) {
+        console.warn(LOG, 'could not read back', src, e);
+        return src;
+    }
+}
+
+// Puts every stored picture back inline, in place, across a whole set of boards.
+// Only the backup export wants this: a file that leaves this machine cannot
+// refer to files that live on it. Operates on the copies IndexedDB just handed
+// back, never on the live boards.
+async function inlineStoredImages(map) {
+    const seen = new Map();     // one read per distinct picture, however many cards use it
+    for (const board of Object.values(map || {})) {
+        if (!board || typeof board !== 'object') continue;
+        for (const [obj, key] of imageSlots(board)) {
+            const v = obj?.[key];
+            if (!isStoredImg(v)) continue;
+            if (!seen.has(v)) seen.set(v, await imgAsDataUrl(v));
+            obj[key] = seen.get(v);
+        }
+    }
 }
 
 // The file holds every image on every board, so this is the single most expensive
@@ -313,6 +484,11 @@ function gestureActive() {
 async function runUpload() {
     uploadTimer = null;
     if (gestureActive()) { uploadTimer = setTimeout(runUpload, 500); return; }
+    // Pictures are being moved out right now, which means the file is still
+    // carrying most of them. Sending it repeatedly through that window is
+    // megabytes of upload competing with the image uploads for the same
+    // connection — and it is all superseded by the one save at the end.
+    if (migrating) { uploadTimer = setTimeout(runUpload, 1500); return; }
     if (uploading) { uploadAgain = true; return; }   // never overlap two writes
     uploading = true;
     setSyncState('saving');
@@ -352,7 +528,10 @@ async function pullIfNewer(announce) {
         if (!data || typeof data.rev !== 'number' || data.rev <= serverRev) return false;
         serverRev = data.rev;
         boards = data.boards || {};
-        for (const [k, v] of Object.entries(boards)) idbPut(k, structuredCloneSafe(v)).catch(() => {});
+        // Handed over live: IndexedDB structured-clones what it is given, so the
+        // JSON round trip that used to be here was a second full copy of every
+        // board — on the main thread, in the middle of opening the board.
+        for (const [k, v] of Object.entries(boards)) idbPut(k, v).catch(() => idbPut(k, structuredCloneSafe(v)).catch(() => {}));
         if ($('#mb-modal').is(':visible')) renderBoard();
         if (announce && typeof toastr !== 'undefined') toastr.info('Доски обновлены с другого устройства');
         return true;
@@ -2723,6 +2902,9 @@ function showBusy(text) {
     return new Promise(res => setTimeout(res, 40));
 }
 function hideBusy() { $('#mb-busy').css('display', 'none'); }
+// Updates the line without the yield showBusy does — for progress inside a loop
+// that is already yielding on its own.
+function showBusyText(text) { $('#mb-busy .mb-busy-text').text(text || ''); }
 
 async function exportPng(quality) {
     const $btn = $('#mb-export-png');
@@ -3418,10 +3600,21 @@ function bindEvents() {
         b.cards = []; b.drawings = ''; b.strokes = []; b.links = [];
         save(true); renderBoard(); renderInk();
     });
-    $('#mb-export').on('click', () => {
-        const blob = new Blob([JSON.stringify(getBoard(), null, 2)], { type: 'application/json' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = `moodboard_${boardKey()}.json`; a.click();
+    $('#mb-export').on('click', async () => {
+        await showBusy('Готовлю файл…');
+        try {
+            // Same reason as the full backup below: the pictures have to travel
+            // with the board, not as paths into this installation.
+            const one = { [boardKey()]: structuredCloneSafe(getBoard()) };
+            await inlineStoredImages(one);
+            const blob = new Blob([JSON.stringify(one[boardKey()], null, 2)], { type: 'application/json' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = `moodboard_${boardKey()}.json`; a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        } catch (e) {
+            console.error(LOG, e);
+            toastr?.error('Не удалось выгрузить доску: ' + e.message);
+        } finally { hideBusy(); }
     });
     // Wrapped, not passed directly: jQuery hands the handler the event object,
     // which would arrive as the `quality` argument and skip the picker.
@@ -3430,10 +3623,16 @@ function bindEvents() {
     // Board data lives only in this browser now, so this is the one way to carry
     // it to another device or back after clearing site data.
     $('#mb-export-all').on('click', async () => {
+        await showBusy('Собираю копию…');
         try {
             const rows = await idbGetAll();
             const dump = { _mb: 'moodboard-backup', v: 1, at: new Date().toISOString(), boards: {} };
             for (const [k, v] of rows) dump.boards[k] = v;
+            // A backup has to survive the trip to another machine, where none of
+            // our image files exist — so the pictures go back inline on the way
+            // out. Restored, they arrive as data URLs and the idle migration
+            // walks them out to files again on their own.
+            await inlineStoredImages(dump.boards);
             const blob = new Blob([JSON.stringify(dump)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -3444,7 +3643,7 @@ function bindEvents() {
         } catch (e) {
             console.error(LOG, e);
             toastr?.error('Не удалось сделать копию: ' + e.message);
-        }
+        } finally { hideBusy(); }
     });
     $('#mb-edit-theme').on('click', openThemePanel);
     $('#mb-theme-bg-input').on('change', async function(e) {
@@ -3618,7 +3817,7 @@ function bindEvents() {
         reader.onload = async ev => {
             if (typeof toastr !== 'undefined') toastr.info('Optimizing image...', '', {timeOut: 1000});
             const img = await makeCardImage(ev.target.result);
-            addCard(img.content, 'image', undefined, undefined, img.thumb);
+            addCard(img.content, 'image', undefined, undefined, img.thumb, img.origW);
         };
         reader.readAsDataURL(file);
         $(this).val('');
@@ -3671,7 +3870,23 @@ function bindEvents() {
             injectChatImageButtons();
         }, 400);
     };
-    const chatObserver = new MutationObserver(scheduleInject);
+    // A streaming reply appends text to the chat continuously, and every one of
+    // those mutations used to arm the scan — so the whole chat was walked twice a
+    // second for the entire length of a generation, when none of it could
+    // possibly have added a picture. Only records that actually brought an <img>
+    // are worth reacting to. Text nodes, which is nearly all of them during
+    // streaming, are rejected on a nodeType check.
+    //
+    // Still subtree-wide: an image generator drops its result into a message that
+    // already exists, so watching only #chat's own children would miss it.
+    const chatObserver = new MutationObserver(records => {
+        for (const r of records) {
+            for (const n of r.addedNodes) {
+                if (n.nodeType !== 1) continue;
+                if (n.tagName === 'IMG' || n.querySelector?.('img')) { scheduleInject(); return; }
+            }
+        }
+    });
     const chatEl = document.getElementById('chat');
     if (chatEl) chatObserver.observe(chatEl, { childList: true, subtree: true });
     if (typeof eventSource !== 'undefined') {
@@ -3694,9 +3909,13 @@ function injectChatImageButtons() {
         // A button pinned to the corner of one of those has nowhere to sit and
         // ends up floating outside it. Deliberately not marked as handled: the
         // block may be expanded later, and then it deserves a button after all.
+        // Asked first, and deliberately: getBoundingClientRect() forces layout,
+        // and this scan re-runs every time the chat changes. Measuring images
+        // that were already handled meant a forced layout per picture in the
+        // whole chat, several times a second, all through a streaming reply.
+        if ($img.data('mb-injected')) return;
         const box = this.getBoundingClientRect();
         if ((box.width && box.width < 64) || (box.height && box.height < 64)) return;
-        if ($img.data('mb-injected')) return;
         $img.data('mb-injected', true);
 
         const $parent = $img.parent();
@@ -3728,13 +3947,18 @@ function injectChatImageButtons() {
 // snapshot use, and a small preview that the board actually renders. Decoding a
 // dozen full-size photos is what makes a phone crawl; decoding a dozen ~520px
 // previews is nothing, and no quality is lost where it matters.
-const IMG_FULL_DIM = 2400, IMG_FULL_Q = 0.92;
+// 2400 at q0.92 was the old pair, and it was chosen against no particular need:
+// it is far more than a board on a phone can ever show, it made every stored
+// picture two to three times heavier than it had to be, and — decoded — a single
+// one of them is over 20 MB of live bitmap. 1600 still exceeds what any export
+// of a whole board resolves to, and costs a third of the memory.
+const IMG_FULL_DIM = 1600, IMG_FULL_Q = 0.86;
 const IMG_THUMB_DIM = 520, IMG_THUMB_Q = 0.82;
 // Stickers used to be capped at 400px, from when a sticker could only ever be
 // small. They can be dragged out to fill a corner of the board now, so they are
 // kept at a size that survives it.
 const STICKER_DIM = 900;
-function shrinkSticker(src) { return compressImageSrc(src, STICKER_DIM, 0.92); }
+async function shrinkSticker(src) { return storeImage(await compressImageSrc(src, STICKER_DIM, 0.92)); }
 // Width of a stored data URL, used to judge how much detail an export can pull.
 function imgWidth(src) {
     return new Promise(res => {
@@ -3746,9 +3970,13 @@ function imgWidth(src) {
 }
 
 async function makeCardImage(src) {
-    const content = await compressImageSrc(src, IMG_FULL_DIM, IMG_FULL_Q);
-    const thumb = await compressImageSrc(content, IMG_THUMB_DIM, IMG_THUMB_Q, true);
-    return { content, thumb: thumb === content ? null : thumb, origW: await imgWidth(content) };
+    const full = await compressImageSrc(src, IMG_FULL_DIM, IMG_FULL_Q);
+    const small = await compressImageSrc(full, IMG_THUMB_DIM, IMG_THUMB_Q, true);
+    // Measured while the bytes are still in hand: asking a stored path how wide
+    // it is would mean fetching the whole file back to read one number.
+    const origW = await imgWidth(full);
+    const [content, thumb] = await storeImages([full, small === full ? null : small]);
+    return { content, thumb: thumb || null, origW };
 }
 
 async function compressImageSrc(src, maxDim = 1000, quality = 0.8, force = false) {
@@ -3784,7 +4012,7 @@ $(document).on('click', '.mb-chat-img-pin', async function(e) {
     if (src) {
         if (typeof toastr !== 'undefined') toastr.info('Optimizing image...', '', {timeOut: 1000});
         const img = await makeCardImage(src);
-        addCard(img.content, 'image', undefined, undefined, img.thumb);
+        addCard(img.content, 'image', undefined, undefined, img.thumb, img.origW);
         if (typeof toastr !== 'undefined') toastr.success('Pinned to MoodBoard!');
     }
 });
@@ -3966,7 +4194,7 @@ function restack(card, where) {
     save();
 }
 
-function addCard(content, type, x, y, thumb) {
+function addCard(content, type, x, y, thumb, origW) {
     const board = getBoard();
     const vc = viewportCenter();
     const spread = 60;
@@ -3979,6 +4207,9 @@ function addCard(content, type, x, y, thumb) {
         created: Date.now()
     };
     if (thumb) card.thumb = thumb;
+    // What the stored original measures. PNG export uses it to work out how far
+    // it can usefully scale, and reading it here saves fetching the file back.
+    if (origW) card.origW = origW;
     board.cards.push(card);
     save();
     if ($('#mb-modal').is(':visible')) renderCard(card, true);
@@ -4016,39 +4247,220 @@ function renderBoard() {
 
     renderAiHistory();
     updateTransform();
-    backfillThumbs();
+    groomBoard();
+}
+
+// Housekeeping for boards that predate the current storage: moving inlined
+// pictures out to files, and making the previews that keep the board light.
+//
+// Neither is allowed to just happen. Both decode, re-encode and upload one photo
+// at a time, and on an old board that is minutes of work — measured here at
+// around half a minute of a *desktop* being unable to paint, for twelve pictures.
+// On a phone, on someone's own connection, that is a hot device and a browser
+// that may well give up. So past a handful of items this asks first, and does
+// nothing until told.
+const GROOM_QUIET_MAX = 4;
+let groomRunning = false;
+const idleTick = () => new Promise(res =>
+    (window.requestIdleCallback || (cb => setTimeout(cb, 120)))(res, { timeout: 800 }));
+
+// How much there is to do, in items, without touching any of it.
+function pendingGroomWork() {
+    const board = getBoard();
+    const thumbs = (board.cards || []).filter(c =>
+        (c.type === 'image' || c.type === 'sticker') && c.content && !c.thumb && !c.noThumb).length;
+    const inline = countInlineImages();
+    return { inline, thumbs, total: inline + thumbs };
+}
+
+async function groomBoard() {
+    if (groomRunning) return;
+    groomRunning = true;
+    const started = getBoard();
+    try {
+        const work = pendingGroomWork();
+        if (work.total > GROOM_QUIET_MAX) offerGrooming(work);
+        else if (work.total) {
+            await migrateInlineImages();
+            await backfillThumbs();
+        }
+    } catch (e) {
+        console.warn(LOG, 'board grooming stopped early', e);
+    } finally {
+        groomRunning = false;
+    }
+    // Both passes bail out the moment the board underneath them changes, and the
+    // render that caused the switch has already been and gone — so without this
+    // the board just switched to would never get its turn.
+    if (getBoard() !== started && $('#mb-modal').is(':visible')) groomBoard();
+}
+
+// Everything on a board that holds pixels. Each entry is an object and the key
+// on it that carries the picture, so one loop can rewrite all of them.
+function* imageSlots(board) {
+    for (const c of board.cards || []) {
+        yield [c, 'content']; yield [c, 'thumb'];
+        for (const cell of c.cells || []) { if (cell) { yield [cell, 'content']; yield [cell, 'thumb']; } }
+    }
+    yield [board, 'drawings'];                       // the legacy raster layer
+    for (const f of board.frames || []) yield [f, 'src'];
+    const list = board.stickers || [];
+    for (let i = 0; i < list.length; i++) yield [list, String(i)];
+    // Board backdrops: the one in use, and every one parked in a saved theme.
+    if (board.customTheme?.bg) yield [board.customTheme.bg, 'src'];
+    for (const th of board.savedThemes || []) { if (th?.bg) yield [th.bg, 'src']; }
+}
+
+// True while pictures are being moved out. The boards file is at its heaviest
+// during exactly this window — most photos still inlined — so re-uploading it
+// between images would mean sending several megabytes over and over alongside
+// the image uploads themselves. runUpload waits this out; the local cache is
+// still written as we go, so nothing is at risk.
+let migrating = false;
+// Attempted once per session. Without this a run that cannot finish — a server
+// that refuses the files, a connection that keeps dropping — is retried in full
+// on every single render, which is worse than never trying at all.
+let migrateTried = false;
+
+function countInlineImages() {
+    let n = 0;
+    for (const board of [getBoard(), boards.global || {}]) {
+        for (const [obj, key] of imageSlots(board)) if (isDataUrl(obj?.[key])) n++;
+    }
+    return n;
+}
+
+// Boards written before the image store existed carry their photos inline.
+// Interrupted at any point this is still correct: whatever moved is a path,
+// whatever did not is still a data URL, and both render.
+async function migrateInlineImages(force) {
+    if (migrating) return;
+    if (migrateTried && !force) return;
+    const board = getBoard();
+    const slots = [...imageSlots(board), ...imageSlots(boards.global || {})]
+        .filter(([obj, key]) => isDataUrl(obj?.[key]));
+    if (!slots.length) return;
+    if (!await probeImageStore()) return;            // nothing would land anyway
+
+    migrateTried = true;
+    migrating = true;
+    const total = slots.length;
+    let moved = 0;
+    console.info(LOG, `moving ${total} inlined image(s) out of the boards file`);
+    try {
+        for (const [obj, key] of slots) {
+            if (!$('#mb-modal').is(':visible')) break;   // board closed — stop working
+            if (imgStore !== 'ok') break;                // the store gave up on us
+            await idleTick();
+            if (getBoard() !== board) break;             // user switched scope
+            const src = obj[key];
+            if (!isDataUrl(src)) continue;               // something else got to it first
+            const path = await storeImage(src);
+            if (path === src) continue;                  // upload failed; it stays inline
+            obj[key] = path;
+            moved++;
+            if (force) showBusyText(`Переношу картинки… ${moved} из ${total}`);
+            // Cheap enough to just re-point every <img> that was showing it.
+            for (const img of document.querySelectorAll('#mb-canvas-inner img')) {
+                if (img.getAttribute('src') === src) img.setAttribute('src', path);
+                if (img.dataset.mbSrc === src) img.dataset.mbSrc = path;
+            }
+            // A checkpoint every so often, to the local cache only — see the note
+            // on `migrating` above. Not every picture: the cache write clones the
+            // whole board, which during this window still holds most of them.
+            // Losing a checkpoint costs nothing but a few orphaned files and a
+            // second pass; the pictures themselves are already safely uploaded.
+            if (moved % 10 === 0) {
+                for (const k of new Set([boardKey(), 'global'])) {
+                    try { await idbPut(k, boards[k]); } catch (e) {}
+                }
+            }
+        }
+    } finally {
+        migrating = false;
+    }
+    // One upload, at the end, of a file that is now a fraction of what it was.
+    if (moved) { save(true); console.info(LOG, `moved ${moved} image(s) out`); }
+    return moved;
+}
+
+// Asked rather than assumed. The gain is real but it is not urgent, and it is
+// paid for one photo at a time over whatever connection the user happens to be
+// on — so starting it is theirs to decide, and doing it from a desktop once is
+// enough for every device afterwards.
+let groomOffered = false;
+function offerGrooming(work) {
+    if (groomOffered || typeof toastr === 'undefined') return;
+    groomOffered = true;
+    const what = work.inline && work.thumbs
+        ? `${work.inline} картинок внутри файла досок и ${work.thumbs} без превью`
+        : work.inline ? `${work.inline} картинок лежат внутри файла досок`
+                      : `${work.thumbs} картинок без превью`;
+    toastr.info(
+        `${what}. Из-за этого доска тяжёлая и телефон греется. Нажмите, чтобы привести в порядок — ` +
+        `это разовая операция, лучше запустить с компьютера. Займёт около минуты.`,
+        'MoodBoard', { timeOut: 0, extendedTimeOut: 0, closeButton: true, tapToDismiss: false,
+            onclick: () => runGroomingNow() });
+}
+
+let groomingNow = false;
+async function runGroomingNow() {
+    if (groomingNow) return;
+    groomingNow = true;
+    await showBusy('Привожу доску в порядок…');
+    try {
+        const moved = await migrateInlineImages(true) || 0;
+        const made = await backfillThumbs(true) || 0;
+        toastr?.success(moved || made
+            ? `Готово: перенесено ${moved}, превью сделано ${made}`
+            : 'Всё уже в порядке');
+    } catch (e) {
+        console.error(LOG, 'grooming failed', e);
+        toastr?.error('Не получилось: ' + (e.message || e));
+    } finally { groomingNow = false; hideBusy(); }
 }
 
 // Boards made before previews existed store only full-size images, so they'd stay
-// just as heavy as before. Generate the missing previews during idle time, one at
-// a time, and swap them in as they land.
-let backfillRunning = false;
-async function backfillThumbs() {
-    if (backfillRunning) return;
+// just as heavy as before. Generate the missing previews and swap them in as they
+// land.
+async function backfillThumbs(force) {
     const board = getBoard();
     const pending = (board.cards || []).filter(c =>
         (c.type === 'image' || c.type === 'sticker') && c.content && !c.thumb && !c.noThumb);
-    if (!pending.length) return;
-    backfillRunning = true;
-    const idle = () => new Promise(res =>
-        (window.requestIdleCallback || (cb => setTimeout(cb, 120)))(res, { timeout: 800 }));
+    if (!pending.length) return 0;
+    // Each item here decodes a full-size photo and encodes a new one. Held to the
+    // same rule as the migration: a few can happen quietly, a boardful is asked
+    // about first — see the note on GROOM_QUIET_MAX.
+    if (!force && pending.length > GROOM_QUIET_MAX) return 0;
+    const total = pending.length;
+    let made = 0;
+    // The save at the end rewrites the whole file, so hold the upload off until
+    // then rather than letting one land per preview.
+    migrating = true;
     try {
-        for (const card of pending) {
-            if (!$('#mb-modal').is(':visible')) break;   // board closed — stop working
-            await idle();
-            if (getBoard() !== board) break;             // user switched scope
-            const thumb = await compressImageSrc(card.content, IMG_THUMB_DIM, IMG_THUMB_Q, true);
-            if (!thumb || thumb === card.content) { card.noThumb = true; continue; }
-            card.thumb = thumb;
-            const img = document.querySelector(`.mb-card[data-id="${card.id}"] img`);
-            if (img) img.setAttribute('src', thumb);
+    for (const card of pending) {
+        if (!$('#mb-modal').is(':visible')) break;   // board closed — stop working
+        await idleTick();
+        if (getBoard() !== board) break;             // user switched scope
+        const shrunk = await compressImageSrc(card.content, IMG_THUMB_DIM, IMG_THUMB_Q, true);
+        // Already small enough to be its own preview: compressImageSrc hands the
+        // source straight back.
+        if (!shrunk || shrunk === card.content) { card.noThumb = true; continue; }
+        card.thumb = await storeImage(shrunk);
+        made++;
+        if (force) showBusyText(`Делаю превью… ${made} из ${total}`);
+        const img = document.querySelector(`.mb-card[data-id="${card.id}"] .mb-card-content-wrap > img`);
+        if (img) {
+            const want = bestSrcFor(card);
+            if (img.dataset.mbSrc) img.dataset.mbSrc = want;
+            else img.setAttribute('src', want);
         }
-        save();
-    } catch (e) {
-        console.warn(LOG, 'thumbnail backfill failed', e);
-    } finally {
-        backfillRunning = false;
     }
+    } finally { migrating = false; }
+    // `noThumb` is a decision worth keeping even when no preview came of it: it
+    // is what stops the same picture being re-examined on every render.
+    save(true);
+    return made;
 }
 
 function renderTabs() {
@@ -4218,7 +4630,7 @@ async function setThemeBackground(file) {
         r.onerror = rej;
         r.readAsDataURL(file);
     });
-    const src = await compressImageSrc(raw, 1600, 0.85, true);
+    const src = await storeImage(await compressImageSrc(raw, 1600, 0.85, true));
     const t = customTheme();
     t.bg = { src, mode: t.bg?.mode || 'tile' };
     applyCustomTheme();
@@ -4360,7 +4772,7 @@ async function addCustomFrames(files) {
             // it away before anything is measured.
             const cut = await trimTransparent(raw, 6);
             const fitted = await analyzeFrameImage(cut.src);
-            saved += Math.max(0, raw.length - fitted.src.length);
+            saved += Math.max(0, raw.length - (fitted.bytes || 0));
             frames.push({
                 id: genId(),
                 name: (file.name || 'Рамка').replace(/\.[^.]+$/, '').slice(0, 24),
@@ -4410,13 +4822,16 @@ async function reprocessFrames() {
     try {
         for (const f of frames) {
             if (!f.src) continue;
-            before += f.src.length;
+            // Measured in encoded bytes, not in the length of whatever `src`
+            // happens to hold — a stored frame's src is a path a few dozen
+            // characters long, which would report an absurd saving.
+            before += f.bytes || f.src.length;
             try {
                 const cut = await trimTransparent(f.src, 6);
                 const fitted = await analyzeFrameImage(cut.src);
                 Object.assign(f, fitted);
             } catch (e) { console.warn(LOG, 'frame reprocess failed', f.name, e); }
-            after += f.src.length;
+            after += f.bytes || f.src.length;
         }
         save(true);
         injectCustomFrameCss();
@@ -4515,7 +4930,11 @@ async function analyzeFrameImage(src, max = 512, keepSrc = false) {
             if (webp.startsWith('data:image/webp') && webp.length < png.length) best = webp;
         } catch (e) { /* no webp encoder: PNG it is */ }
     }
-    const out = { src: best, sw: w, sh: h, v: FRAME_ANALYSIS_V };
+    // `bytes` is what the encoded artwork weighs, recorded before it is moved out
+    // to a file — once `src` is a path, its length says nothing about the picture.
+    // With keepSrc there was no encoding, so whatever was measured before stands.
+    const out = { src: await storeImage(best), sw: w, sh: h, v: FRAME_ANALYSIS_V };
+    if (!keepSrc) out.bytes = best.length;
 
     // Nothing transparent along any middle line, or the hole would be so large
     // there is barely any artwork left: not a frame.
@@ -4963,18 +5382,53 @@ const MARKUP_BTNS = [
 const CARD_W_MIN = 60, CARD_W_MAX = 3000;
 function clampCardW(w) { return Math.round(Math.max(CARD_W_MIN, Math.min(CARD_W_MAX, w || 0))); }
 
+// Which copy of a picture this card should be showing.
+//
+// A preview is ~520px wide; blown up past that it turns to mush, so a card being
+// painted bigger than that gets the original instead. The question is what
+// "bigger" means. This used to compare `card.w` — the card's width in *board*
+// coordinates — against 520, which is not a size on the screen at all: at a
+// typical phone zoom of 0.4 a card 600 board-px wide occupies about 240 real
+// pixels, and it was still handed the full-size original. That is the difference
+// between a 0.5 MB decoded bitmap and a 10 MB one, per card, for no visible gain.
+//
+// What matters is how many device pixels the picture actually covers.
+function bestSrcFor(card) {
+    if (!card || !card.content) return '';
+    if (!card.thumb) return card.content;              // there is only one copy
+    const cap = window.innerWidth <= 768 ? 2 : 3;
+    const dpr = Math.min(window.devicePixelRatio || 1, cap);
+    const onScreen = (card.w || 220) * zoom * dpr;
+    // The margin is slack, not precision: it keeps a card parked exactly on the
+    // boundary from swapping its source back and forth on every nudge of the zoom.
+    return onScreen > IMG_THUMB_DIM * 1.15 ? card.content : card.thumb;
+}
+
+// Re-checks that choice for every card on the board. Only zoom can change the
+// answer, so this is driven from the zoom settle rather than from every frame.
+function refreshImgTiers() {
+    const byId = new Map((getBoard().cards || []).map(c => [c.id, c]));
+    for (const img of document.querySelectorAll('#mb-canvas-inner .mb-card > .mb-card-content-wrap > img')) {
+        const card = byId.get(img.closest('.mb-card')?.dataset.id);
+        if (!card || !card.content) continue;
+        const want = bestSrcFor(card);
+        if (!want) continue;
+        // Asleep behind the blank pixel: correct what it will wake up as, and
+        // leave the sleeping <img> alone.
+        if (img.dataset.mbSrc) { img.dataset.mbSrc = want; continue; }
+        if (img.getAttribute('src') !== want) img.setAttribute('src', want);
+    }
+}
+
 function setCardWidth(card, $card, w) {
     card.w = clampCardW(w);
     $card.addClass('has-size').css('width', card.w + 'px');
     applyCustomFrameSizing($card, card);
-    // A preview is ~520px wide. Blown up past that it turns to mush, so a card
-    // this big gets the original pixels instead — and hands them back when it
-    // shrinks again, so the board stays light.
     const img = $card.find('img')[0];
     if (img && (card.type === 'image' || card.type === 'sticker') && card.content) {
-        const want = card.w > IMG_THUMB_DIM ? card.content : (card.thumb || card.content);
-        if (img.getAttribute('src') !== want && img.getAttribute('src') !== BLANK_PX) img.setAttribute('src', want);
+        const want = bestSrcFor(card);
         if (img.dataset.mbSrc) img.dataset.mbSrc = want;   // asleep right now; wake up with the right one
+        else if (img.getAttribute('src') !== want) img.setAttribute('src', want);
     }
     linkGeomDirty = true;
     save();
@@ -5211,8 +5665,9 @@ function openStylePanel(card, $card) {
         // same file replaces the pixels while keeping position, frame and layer.
         const im = new Image();
         im.src = card.content;
-        const shown = () => im.naturalWidth ? `${im.naturalWidth}×${im.naturalHeight}` : '…';
-        const tail = ' — это и есть потолок чёткости в PNG. Картинки, добавленные раньше, сохранялись до 1000 px, сейчас — до 2400 px.';
+        const shown = () => im.naturalWidth ? `${im.naturalWidth}×${im.naturalHeight}`
+                          : (card.origW ? `${card.origW} px по ширине` : '…');
+        const tail = ` — это и есть потолок чёткости в PNG. Картинки, добавленные раньше, сохранялись до 1000 px, сейчас — до ${IMG_FULL_DIM} px.`;
         const $q = $(`<div class="mb-select-hint" style="margin-top:4px">Сохранено: <b>${shown()}</b>${tail}</div>`);
         im.onload = () => $q.html(`Сохранено: <b>${shown()}</b>${tail}`);
         $body.append('<span class="mb-settings-label" style="margin-top:4px">Качество</span>').append($q);
@@ -5231,8 +5686,9 @@ function openStylePanel(card, $card) {
                     const img = await makeCardImage(raw);
                     card.content = img.content;
                     if (img.thumb) card.thumb = img.thumb; else delete card.thumb;
+                    card.origW = img.origW;
                     delete card.noThumb;
-                    $card.find('img').attr('src', card.thumb || card.content);
+                    $card.find('img').attr('src', bestSrcFor(card));
                     save(true);
                     openStylePanel(card, $card);   // refresh the reported size
                     toastr?.success('Картинка заменена');
@@ -5353,8 +5809,9 @@ function renderCard(card, animate, target) {
     } else if (isCollage) {
         contentHtml = collageHtml(card);
     } else if (isImg) {
-        // Render the preview; the original is only pulled in for PNG export / AI.
-        const src = card.thumb || card.content;
+        // Whichever copy this card's on-screen size actually calls for — usually
+        // the preview. The original is pulled in for PNG export / AI regardless.
+        const src = bestSrcFor(card);
         contentHtml = `<div class="mb-card-content-wrap"><img src="${src}" draggable="false" decoding="async" style="max-width:100%;display:block;${isSticker ? '' : 'border-radius:4px;'}"></div>`;
     } else {
         // Not editable until tapped. While a note is permanently contenteditable
@@ -8251,11 +8708,24 @@ function onWheel(e) {
     saveCamera();
 }
 
+// Zoom, and only zoom, changes how many device pixels a picture covers — so it
+// is the one thing that can change which copy a card should be showing. Panning
+// cannot. Debounced past the end of the gesture: swapping sources mid-pinch
+// would decode new bitmaps in the middle of the only moment that has to stay
+// smooth.
+let tierZoom = -1, tierTimer = null;
+function scheduleTierCheck() {
+    if (Math.abs(zoom - tierZoom) < 0.001) return;
+    clearTimeout(tierTimer);
+    tierTimer = setTimeout(() => { tierZoom = zoom; refreshImgTiers(); }, 250);
+}
+
 function updateTransform() {
     const inner = document.getElementById('mb-canvas-inner');
     if (inner) inner.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`;
     renderInk();   // the ink layer lives in screen space, so it follows the camera
     scheduleCull();
+    scheduleTierCheck();
 }
 
 // ===== VIEWPORT CULLING =====

@@ -473,6 +473,11 @@
     .mb-canvas-area.is-panning .mb-card.mb-touched,
     .mb-canvas-area.is-panning .mb-card.is-dragging { box-shadow: none !important; }
     .mb-canvas-area.is-panning .mb-card { transition: none !important; }
+    /* shape-torn and shape-ticket carry their shadow as filter: drop-shadow,
+       which the rule above does not touch — and a drop-shadow is worse than a
+       box-shadow, because it blurs the element's actual alpha channel rather
+       than a rectangle. Those cards kept paying for it through every gesture. */
+    .mb-canvas-area.is-panning .mb-card { filter: none !important; }
 }
 
 /* ===== ANIMATIONS ===== */
