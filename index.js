@@ -898,7 +898,11 @@ async function fetchViaProfile(profile, messages, maxTokens) {
 // board reaction is a paragraph and fits in whatever the chat is set to; a tree
 // is a JSON document, and half a JSON document is worth nothing at all — which
 // is exactly what came back when the chat's own max_length was modest.
-async function fetchFromLLM(prompt, imageBase64, wantTokens) {
+//
+// `signal` only reaches the direct request: Tavern's own service routes take no
+// abort signal, so a Стоп there ends the wait rather than the request. The caller
+// throws the reply away either way.
+async function fetchFromLLM(prompt, imageBase64, wantTokens, signal) {
     const profileName = boards.global?.apiProfile || 'tavern';
     const stCtx = typeof getContext === 'function' ? getContext() : {};
     let cc_source = 'openai';
@@ -961,8 +965,8 @@ async function fetchFromLLM(prompt, imageBase64, wantTokens) {
     const headers = (typeof stCtx.getRequestHeaders === 'function') ? stCtx.getRequestHeaders() : {};
     headers['Content-Type'] = 'application/json';
 
-    const res = await fetch('/api/backends/chat-completions/generate', { 
-        method: 'POST', body: JSON.stringify(generate_data), headers: headers
+    const res = await fetch('/api/backends/chat-completions/generate', {
+        method: 'POST', body: JSON.stringify(generate_data), headers: headers, signal
     });
     const d = await res.json();
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
@@ -1096,6 +1100,18 @@ function setUiPref(key, on) {
     boards.global[key] = !!on;
     save();
 }
+// Opt-in settings, where "never set" has to mean off rather than on: uiPref's
+// absent-means-yes would switch these on for everyone who has ever used the
+// extension.
+function optIn(key) { return !!boards.global?.[key]; }
+// Skip the overlay entirely and go straight to the pill, for anyone who always
+// wants the screen back.
+function bgSendPref() { return optIn('bgSend'); }
+
+function syncMiniStyleUI() {
+    $('#mb-mini-style .mb-mini-opt').removeClass('active')
+        .filter(`[data-mini="${miniStyle()}"]`).addClass('active');
+}
 
 // Pulls the settings panel back in line with what is actually stored.
 function syncSettingsUI() {
@@ -1105,6 +1121,9 @@ function syncSettingsUI() {
     $('#mb-custom-prompt').val(boards.global?.customPrompt || '');
     $('#mb-tg-quote').prop('checked', uiPref('showQuoteBtn'));
     $('#mb-tg-image').prop('checked', uiPref('showImageBtn'));
+    $('#mb-tg-nova').prop('checked', uiPref('showNovaBtn'));
+    $('#mb-tg-bgsend').prop('checked', bgSendPref());
+    syncMiniStyleUI();
     $('#mb-tg-zoomq').prop('checked', uiPref('zoomQuality'));
     $('#mb-tg-charcard').prop('checked', sendPref('sendCharCard'));
     $('#mb-tg-persona').prop('checked', sendPref('sendPersona'));
@@ -1312,9 +1331,11 @@ function boardSystemText({ user, charName, charDesc, charPersona, notes, speaker
 // The task and the response style go in the final turn, immediately before the
 // answer — the position with the most pull over format, and the same one Tavern's
 // own presets use for their formatting rules.
-function boardAskText({ user, partial, speakers }) {
+function boardAskText({ user, partial, crop, speakers }) {
     let s = '';
-    if (partial) {
+    if (crop) {
+        s += `[NOTE: ${user} has framed one area of the board — the image is a close crop of it, and may cut things off at its edges. React to what is inside the frame, not to the board as a whole.]\n\n`;
+    } else if (partial) {
         s += `[NOTE: ${user} has singled out ${partial} item(s) from the board — the image shows only those. React to what is in front of you, not to the board as a whole.]\n\n`;
     }
     s += `[SYSTEM COMMAND: Look at the Mood Board image and read the notes. Provide an IN-CHARACTER reaction, thoughts, or commentary about the board itself. Speak directly to ${user} or muse to yourself. React to the vibe and imagery! IMPORTANT: DO NOT WRITE A ROLEPLAY CONTINUATION! ONLY COMMENT ON THE BOARD!`;
@@ -1391,34 +1412,233 @@ function resolveSpeakers(stCtx) {
     return { charName, charDesc, charPersona, speakers };
 }
 
-async function analyzeBoard() {
-    const btn = $('#mb-btn-analyze');
-    const oldHtml = btn.html();
-    btn.addClass('mb-busy').prop('disabled', true);
+// ===== SENDING THE BOARD: ONE JOB, INTERRUPTIBLE, BACKGROUNDABLE =====
+// A board request has two very different halves. Assembling the picture is slow
+// and local — html2canvas over every card, on a phone, is the hottest moment in
+// the extension. Waiting for the model is slow and remote. Both used to happen
+// behind a full-screen overlay with no way out: no way to abandon a request that
+// had clearly gone wrong, no way to keep writing while it ran, and — worst of the
+// three — no way to retry a refusal without paying for the whole assembly again.
+//
+// So a send is a job now. `cancelled` unwinds it at the next await; `bg` folds
+// the overlay into a pill and hands the screen back; and a payload that survived
+// assembly but died at the model is kept in `pendingSend`, ready to be thrown at
+// the model again as-is.
+class MbCancel extends Error {
+    constructor() { super('отправка прервана'); this.cancelled = true; }
+}
+let aiJob = null;        // the send currently in flight, if any
+let pendingSend = null;  // a captured board whose request failed
 
-    if (!$('#mb-ai-overlay').length) {
-        // Sizing note: <html> carries a transform in SillyTavern, which makes it the
-        // containing block for position:fixed. Percentage heights then resolve
-        // against <html> (effectively 0) and the overlay collapses into a strip at
-        // the top of the screen. Viewport units are immune to that.
-        // No backdrop-filter here either: it would hold a full-screen blur for the
-        // entire request, exactly when the phone can least afford it.
-        $('body').append(`<div id="mb-ai-overlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;height:100dvh;background:rgba(0,0,0,0.88);z-index:9999999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;">
-            <i class="fa-solid fa-spinner fa-spin fa-3x" style="color:var(--mb-accent);margin-bottom:20px;"></i>
-            <h2 style="font-family:var(--mb-font-handwritten);font-size:2em;font-weight:normal;">Analyzing Board...</h2>
-        </div>`);
-    } else {
-        $('#mb-ai-overlay').css('display', 'flex');
+function jobCheck(job) { if (job?.cancelled) throw new MbCancel(); }
+
+// Sizing note: <html> carries a transform in SillyTavern, which makes it the
+// containing block for position:fixed. Percentage heights then resolve against
+// <html> (effectively 0) and the overlay collapses into a strip at the top of the
+// screen. Viewport units are immune to that.
+// No backdrop-filter here either: it would hold a full-screen blur for the entire
+// request, exactly when the phone can least afford it.
+// One line, not two. A fixed heading plus a live one meant the overlay could say
+// "Собираю доску" over "Жду ответа модели…" at the same time.
+const AI_OVERLAY_HTML = `<div id="mb-ai-overlay">
+    <i class="fa-solid fa-spinner fa-spin fa-3x mb-ai-spin"></i>
+    <h2 class="mb-ai-title" id="mb-ai-stage">Собираю доску…</h2>
+    <div class="mb-ai-acts">
+        <button class="mb-ai-act" id="mb-ai-bg"><i class="fa-solid fa-down-left-and-up-right-to-center"></i> Свернуть в фон</button>
+        <button class="mb-ai-act danger" id="mb-ai-stop"><i class="fa-solid fa-xmark"></i> Стоп</button>
+    </div>
+    <div class="mb-ai-overlay-hint">«В фон» отпускает экран — можно писать пост, доска уйдёт сама, а об ответе придёт уведомление.</div>
+</div>`;
+
+// The folded job's indicator. It lives over the chat, so where it sits and how
+// much room it takes is a matter of taste and of theme — hence a setting rather
+// than a decision. 'bar' says what it is doing, 'dot' is a bare spinner you tap
+// to bring the job back, 'off' shows nothing at all (the job still runs and the
+// notification still arrives).
+const MINI_STYLES = ['bar', 'dot', 'off'];
+function miniStyle() {
+    const v = boards.global?.miniStyle;
+    return MINI_STYLES.includes(v) ? v : 'bar';
+}
+const AI_MINI_HTML = `<div id="mb-ai-mini" title="Открыть">
+    <i class="fa-solid fa-spinner fa-spin"></i>
+    <span class="mb-mini-text"></span>
+    <button class="mb-mini-stop" title="Прервать отправку"><i class="fa-solid fa-xmark"></i></button>
+</div>`;
+
+function showAiOverlay() {
+    if (!$('#mb-ai-overlay').length) $('body').append(AI_OVERLAY_HTML);
+    $('#mb-ai-overlay').css('display', 'flex');
+}
+function hideAiOverlay() { $('#mb-ai-overlay').css('display', 'none'); }
+
+// One writer for "what is happening right now", so the overlay and the pill can
+// never say different things.
+function aiStage(text) {
+    if (aiJob) aiJob.stage = text;
+    $('#mb-ai-stage').text(text || '');
+    $('#mb-ai-mini .mb-mini-text').text(text || '');
+}
+function showAiMini(text) {
+    if (miniStyle() === 'off') { hideAiMini(); return; }
+    if (!$('#mb-ai-mini').length) $('body').append(AI_MINI_HTML);
+    $('#mb-ai-mini')
+        .toggleClass('is-dot', miniStyle() === 'dot')
+        .css('display', 'flex')
+        .find('.mb-mini-text').text(text || '');
+    placeAiMini();
+    watchMiniAnchor(true);
+}
+// Placed with `top`, for the same reason as the picker: a fixed element here
+// resolves against <html>, which is transformed and zero high, so `bottom` would
+// put the pill above the top of the window.
+//
+// It goes at the TOP. The bottom of the screen belongs to the chat's input box
+// and to the last line of the post above it — which is the part you are actually
+// reading — and a badge parked there covers the very thing the background send
+// was supposed to let you keep doing.
+function topBarBottom() {
+    let y = 0;
+    for (const sel of ['#top-settings-holder', '#top-bar']) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.height > 0 && r.bottom > y && r.top < 120) y = r.bottom;
     }
+    return y;
+}
+function placeAiMini() {
+    const $m = $('#mb-ai-mini');
+    if (!$m.length || $m.css('display') === 'none') return;
+    // Clear of Tavern's own top strip, and of the board's header when the board
+    // itself is open.
+    const base = $('#mb-modal').is(':visible')
+        ? ($('.mb-header').outerHeight() || 40)
+        : topBarBottom();
+    $m.css('top', Math.round(Math.max(6, base) + 8) + 'px');
+}
+// Tavern rebuilds its top strip on a chat change, so the anchor is re-measured
+// while a send is in flight — and only then.
+let miniWatch = null;
+function watchMiniAnchor(on) {
+    if (!on) { clearInterval(miniWatch); miniWatch = null; return; }
+    if (miniWatch) return;
+    miniWatch = setInterval(placeAiMini, 700);
+}
+function hideAiMini() { watchMiniAnchor(false); $('#mb-ai-mini').remove(); }
 
+// Fold the request away. The job keeps running exactly as it was — the capture
+// clone lives in <body>, not inside the modal, so hiding or even closing the
+// board does not disturb it.
+function foldAiToBackground() {
+    if (!aiJob) return;
+    aiJob.bg = true;
+    hideAiOverlay();
+    showAiMini(aiJob.stage || 'Отправляю доску…');
+}
+function unfoldAiJob() {
+    if (!aiJob) return;
+    aiJob.bg = false;
+    hideAiMini();
+    // A board folded away mid-capture is still `display:block` — see
+    // hideModalSafely — so "is it visible" is not enough to decide here.
+    const $m = $('#mb-modal');
+    if ($m.hasClass('mb-capturing') || !$m.is(':visible')) openBoard();
+    showAiOverlay();
+    aiStage(aiJob.stage);
+}
+// Stop. The direct request is genuinely aborted through its signal; Tavern's own
+// service routes take no signal, so there the reply is simply thrown away — but
+// the assembly, which is the half that actually keeps you waiting on a phone,
+// stops at the very next step either way.
+function stopAiJob() {
+    if (!aiJob) return;
+    aiJob.cancelled = true;
+    try { aiJob.ac.abort(); } catch (e) {}
+    aiStage('Прерываю…');
+}
+
+// Closing the board while it is being photographed is the one case where hiding
+// it is not harmless: every number the capture is built from — contentBounds,
+// each card's offsetLeft and offsetWidth — is 0 inside a display:none subtree,
+// so the picture would come out empty. While a capture is running the board is
+// made invisible instead of unlaid-out, and it goes away properly the moment the
+// picture exists.
+function hideModalSafely() {
+    if (aiJob && aiJob.phase === 'capture') { $('#mb-modal').addClass('mb-capturing'); return; }
+    $('#mb-modal').removeClass('mb-capturing').css('display', 'none');
+}
+function settleModalVisibility() {
+    const $m = $('#mb-modal');
+    if ($m.hasClass('mb-capturing')) $m.removeClass('mb-capturing').css('display', 'none');
+}
+
+function openInsights() {
+    if (!$('#mb-modal').is(':visible')) openBoard();
+    togglePanel('#mb-ai-panel', true);
+    aiPanelOpen = true;
+    $('#mb-btn-ai-panel').removeClass('mb-has-new');
+}
+function notifyBoardReply(name) {
+    $('#mb-btn-ai-panel').addClass('mb-has-new');
+    toastr?.success(`${name || 'Персонаж'} откликнулся на доску — нажмите, чтобы прочитать`, 'MoodBoard',
+        { timeOut: 15000, extendedTimeOut: 8000, onclick: openInsights });
+}
+// The board survived assembly and the model refused it. Nothing is rebuilt: the
+// picture, the prompt and the snapshot are all still in hand.
+function refreshRetryChip() {
+    $('#mb-btn-retry').css('display', pendingSend ? '' : 'none');
+}
+// What actually went wrong, in words, without a trip to the console.
+//
+// Tavern's request services wrap the real reason: what surfaces is a flat "API
+// request failed", while the sentence that matters — "Resource has been
+// exhausted (check quota)", "API key is missing", a moderation refusal — sits in
+// `cause`, sometimes a couple of links down. This walks the chain and keeps every
+// distinct line, so the dialog says what the model said.
+function errText(err) {
+    const seen = new Set();
+    const parts = [];
+    let e = err, depth = 0;
+    while (e && depth++ < 6) {
+        const m = (typeof e === 'string' ? e : e.message || e.error?.message || '').trim();
+        if (m && !seen.has(m)) { seen.add(m); parts.push(m); }
+        e = e.cause;
+    }
+    if (!parts.length) {
+        try { return JSON.stringify(err).slice(0, 300); } catch (x) { return String(err); }
+    }
+    return parts.join(' → ').slice(0, 600);
+}
+
+async function offerRetry(err, job) {
+    const msg = errText(err);
+    if (job.bg || !$('#mb-modal').is(':visible')) {
+        toastr?.error(`${msg}<br><br>Доска собрана — нажмите, чтобы отправить её ещё раз.`, 'MoodBoard: ИИ не ответил',
+            { timeOut: 0, extendedTimeOut: 0, escapeHtml: false,
+              onclick: () => analyzeBoard({ reuse: true }) });
+        return;
+    }
+    const again = await mbConfirm('ИИ не ответил', msg +
+        '\n\nДоска уже собрана — её можно отправить ещё раз, ничего не пересобирая. Кнопка ⟳ в шапке сделает то же самое позже.',
+        { okLabel: 'Повторить' });
+    if (again) analyzeBoard({ reuse: true });
+}
+
+// Everything up to (but not including) the request itself: the picture of the
+// board, the snapshot kept with the reply, and the message list.
+async function captureBoardPayload(job) {
     let clone = null;
     pauseCull();
     try {
+        aiStage('Собираю доску…');
         const h2c = await ensureHtml2Canvas();
+        jobCheck(job);
         await nextPaint();
 
         uncullCards(); // hidden cards must be visible or they won't be captured
         await awaitCardImages();
+        jobCheck(job);
         // Deliberately NOT swapping in the full-size originals. This capture is
         // capped at 1400px across the whole board, so a card ends up a couple of
         // hundred pixels wide — the ~520px preview already carries more detail
@@ -1428,11 +1648,24 @@ async function analyzeBoard() {
         // PNG export still swaps them in, because there the resolution is the
         // whole point.
 
-        // With a selection active, capture only those cards: crop to their box
-        // and drop the rest from the copy. Drawings inside that box come along,
-        // which is what makes marks *on* a photo part of the picture.
-        const onlySelected = selectMode && picked.size > 0;
-        const box = onlySelected ? (pickedBounds() || contentBounds()) : contentBounds();
+        // Three ways to decide what is photographed, in order of precedence:
+        //
+        //   a chosen region — a straight crop of the board. Nothing is removed:
+        //       every card, every stroke, every thread inside the rectangle comes
+        //       along exactly as it looks on screen.
+        //   a card selection — crop to those cards and drop the rest from the
+        //       copy. Precise about cards, but blind to anything drawn beside
+        //       them, which is why the region exists.
+        //   neither — the whole board.
+        const crop = areaCrop;
+        const onlySelected = !crop && selectMode && picked.size > 0;
+        const box = crop ? crop.box
+                  : onlySelected ? (pickedBounds() || contentBounds())
+                  : contentBounds();
+        // Which board this belongs to is decided here and carried through. A
+        // background job can outlive a tab switch or even a change of chat, and a
+        // reply must land on the board it was actually about.
+        const bKey = boardKey();
 
         const inner = document.getElementById('mb-canvas-inner');
         clone = inner.cloneNode(true);
@@ -1456,12 +1689,40 @@ async function analyzeBoard() {
         // small. html2canvas takes x/y relative to the captured element's own
         // coordinate space, so these are plain board coordinates.
         const scale = Math.min(1, 1400 / Math.max(box.w, box.h));
-        const canvas = await h2c(clone, {
+        let canvas = await h2c(clone, {
             useCORS: true, allowTaint: true, backgroundColor: null,
             x: box.x, y: box.y, width: box.w, height: box.h,
             scale, logging: false, removeContainer: true,
         });
         document.body.removeChild(clone); clone = null;
+        jobCheck(job);
+
+        // A free-drawn region is cropped to its bounding box by html2canvas; this
+        // cuts it down to the shape actually drawn.
+        //
+        // Done on a canvas of our own rather than by compositing into theirs: a 2d
+        // context is a single persistent object per canvas, so html2canvas's own
+        // transform is still on it — a mask painted in plain pixel coordinates
+        // lands somewhere else entirely, which is how this first produced an
+        // image that was black from edge to edge. A fresh context starts at
+        // identity, and the scale is read back off the canvas instead of trusting
+        // the one we asked for. The board's own colour goes down first: JPEG has
+        // no transparency, so anything left clear would arrive as black.
+        if (crop && crop.kind === 'free') {
+            const out = document.createElement('canvas');
+            out.width = canvas.width; out.height = canvas.height;
+            const octx = out.getContext('2d');
+            octx.fillStyle = themeColor('--mb-board-bg', '#2a2a2a') || '#2a2a2a';
+            octx.fillRect(0, 0, out.width, out.height);
+            const sx = out.width / box.w, sy = out.height / box.h;
+            octx.save();
+            traceArea(octx, crop, p => ({ x: (p.x - box.x) * sx, y: (p.y - box.y) * sy }));
+            octx.clip();
+            octx.drawImage(canvas, 0, 0);
+            octx.restore();
+            canvas.width = canvas.height = 0;   // release the html2canvas bitmap
+            canvas = out;
+        }
 
         const base64 = canvas.toDataURL('image/jpeg', 0.8);
         // A small copy of exactly what was sent, stored with the reply so it is
@@ -1469,11 +1730,17 @@ async function analyzeBoard() {
         const shot = await compressImageSrc(base64, 640, 0.85, true);
         canvas.width = canvas.height = 0; // release the bitmap immediately
         await nextPaint();
+        jobCheck(job);
+        aiStage('Собираю контекст…');
 
         const b = getBoard();
-        const noteSource = onlySelected
-            ? b.cards.filter(c => picked.has(c.id))
-            : b.cards;
+        // Whose written text travels with the picture. For a region that is the
+        // cards the region covers — the model can read a note in the image, but
+        // small text in a crop is worth spelling out.
+        const inCrop = crop ? new Set(cardsUnderArea(crop)) : null;
+        const noteSource = crop ? b.cards.filter(c => inCrop.has(c.id))
+                         : onlySelected ? b.cards.filter(c => picked.has(c.id))
+                         : b.cards;
         const notes = noteSource.filter(c => c.type === 'text' || c.type === 'quote')
             .map(c => plainNote(c.content)).filter(Boolean)
             // A tree card is a note too — a list of who is who and how they are
@@ -1490,37 +1757,104 @@ async function analyzeBoard() {
         
         const persona = personaText(stCtx);
         const lore = await loreText(stCtx, loreScanText(stCtx, notes, ctxSize));
+        jobCheck(job);
         const authorNote = authorNoteText(stCtx);
 
         const prompt = buildBoardMessages({
             stCtx, ctxSize, user, charName, charDesc, charPersona, notes, speakers, persona, lore, authorNote,
-            partial: onlySelected ? picked.size : 0,
+            partial: onlySelected ? picked.size : 0, crop: !!crop,
         });
 
-        const res = await fetchFromLLM(prompt, base64);
-
-        if (!b.aiHistory) b.aiHistory = [];
-        // The prompt travels with the reply: that is what a swipe re-sends, so a
-        // second take is about the same board even after the board has moved on.
-        const msgObj = { id: genId(), name: charName, text: res, time: Date.now(), shot,
-                         partial: onlySelected ? picked.size : 0, prompt };
-        b.aiHistory.push(msgObj);
-        save(true);   // an AI reply is expensive to regenerate — never leave it on a timer
-
-        appendAiMessage(msgObj);
-        $('#mb-settings, #mb-stickers, #mb-custom-color-panel').removeClass('open');
-        settingsOpen = false;
-        $('#mb-ai-panel').addClass('open'); aiPanelOpen = true;
-
-    } catch(err) {
-        console.error(err);
-        if (typeof toastr !== 'undefined') toastr.error('Error analyzing board: ' + err.message);
+        return { prompt, base64, shot, charName, bKey,
+                 partial: onlySelected ? picked.size : 0, crop: !!crop };
     } finally {
         if (clone?.parentNode) clone.parentNode.removeChild(clone);
         await useFullResImages(false);
-        $('#mb-ai-overlay').css('display', 'none');
-        btn.removeClass('mb-busy').html(oldHtml).prop('disabled', false);
         resumeCull();
+    }
+}
+
+// `opts.reuse`   — send the board kept in pendingSend again, without rebuilding it
+// `opts.background` — start folded, without ever showing the overlay
+async function analyzeBoard(opts = {}) {
+    // A second press while one is in flight brings the running job back into
+    // view rather than starting a rival request.
+    if (aiJob) { unfoldAiJob(); return; }
+    if (opts.reuse && !pendingSend) return;
+
+    const btn = $('#mb-btn-analyze');
+    btn.addClass('mb-busy').prop('disabled', true);
+    const job = aiJob = { cancelled: false, bg: false, stage: '', ac: new AbortController(),
+                          phase: opts.reuse ? 'send' : 'capture' };
+
+    showAiOverlay();
+    aiStage(opts.reuse ? 'Отправляю заново…' : 'Собираю доску…');
+    if (opts.background || (!opts.reuse && bgSendPref())) foldAiToBackground();
+
+    let payload = null;
+    try {
+        payload = opts.reuse ? pendingSend : await captureBoardPayload(job);
+        job.phase = 'send';
+        settleModalVisibility();   // the board can be put away for real now
+        // The picture exists; what it was framed from has done its job. Released
+        // here rather than on success, so a failed send does not leave the board
+        // dimmed behind a region while the retry uses a copy that is already made.
+        if (!opts.reuse) { clearAreaCrop(); if (selectMode) setSelectMode(false); }
+        jobCheck(job);
+        aiStage('Жду ответа модели…');
+
+        const res = await fetchFromLLM(payload.prompt, payload.base64, undefined, job.ac.signal);
+        jobCheck(job);
+
+        // It went through: the kept copy has done its job.
+        pendingSend = null; refreshRetryChip();
+
+        const b = boards[payload.bKey] || getBoard();
+        if (!b.aiHistory) b.aiHistory = [];
+        // The prompt travels with the reply: that is what a swipe re-sends, so a
+        // second take is about the same board even after the board has moved on.
+        const msgObj = { id: genId(), name: payload.charName, text: res, time: Date.now(),
+                         shot: payload.shot, partial: payload.partial, crop: payload.crop,
+                         prompt: payload.prompt };
+        b.aiHistory.push(msgObj);
+        save(true);   // an AI reply is expensive to regenerate — never leave it on a timer
+
+        const hidden = job.bg || !$('#mb-modal').is(':visible');
+        // Only paint it if the board it belongs to is the one on screen — a
+        // background job can outlive a tab switch, and the reply belongs where it
+        // was asked for.
+        const here = payload.bKey === boardKey();
+        if (here) {
+            appendAiMessage(msgObj);
+            if (!hidden) {
+                $('#mb-settings, #mb-stickers, #mb-custom-color-panel').removeClass('open');
+                settingsOpen = false;
+                $('#mb-ai-panel').addClass('open'); aiPanelOpen = true;
+            }
+        }
+        if (hidden || !here) notifyBoardReply(payload.charName);
+
+    } catch (err) {
+        if (err?.cancelled || err?.name === 'AbortError') {
+            toastr?.info('Отправка прервана', 'MoodBoard', { timeOut: 3000 });
+        } else {
+            console.error(LOG, err);
+            if (payload) {
+                // The expensive half succeeded. Keep it and offer the cheap half again.
+                pendingSend = payload;
+                refreshRetryChip();
+                offerRetry(err, job);
+            } else {
+                toastr?.error(errText(err), 'MoodBoard: не получилось собрать доску',
+                              { timeOut: 12000, extendedTimeOut: 6000 });
+            }
+        }
+    } finally {
+        aiJob = null;
+        settleModalVisibility();   // also covers a capture that threw
+        hideAiOverlay();
+        hideAiMini();
+        btn.removeClass('mb-busy').prop('disabled', false);
     }
 }
 
@@ -1543,7 +1877,8 @@ function appendAiMessage(msgObj) {
         ${folderTag}
         ${msgObj.shot ? `<div class="mb-ai-shot" title="Что было отправлено">
             <img src="${msgObj.shot}" alt="">
-            ${msgObj.partial ? `<span class="mb-ai-shot-tag">выбрано: ${msgObj.partial}</span>` : ''}
+            ${msgObj.crop ? `<span class="mb-ai-shot-tag">область</span>`
+              : msgObj.partial ? `<span class="mb-ai-shot-tag">выбрано: ${msgObj.partial}</span>` : ''}
         </div>` : ''}
         <div class="mb-ai-msg-body mb-rich">${formatRich(msgObj.text, msgObj.name)}</div>
         ${swipeBarHtml(msgObj)}
@@ -2048,7 +2383,7 @@ function attachWand() {
 function openBoard() {
     // Someone may have edited on another device since this tab last looked.
     pullIfNewer(true);
-    $('#mb-modal').css('display','block');
+    $('#mb-modal').removeClass('mb-capturing').css('display','block');
     // Camera first, then the cards. The other way round, the very first cull ran
     // against last session's viewport, so on a big board every picture on it was
     // decoded before anything decided which ones were even on screen.
@@ -2068,10 +2403,15 @@ function closeBoard() {
     cancelStroke();
     cancelDrag();
     cancelLink();
-    $('#mb-modal').css('display','none');
+    cancelArea();
+    // A send in flight is not cancelled by leaving — it is folded into the pill,
+    // which is the whole point of being able to walk away from it.
+    if (aiJob && !aiJob.bg) foldAiToBackground();
+    hideModalSafely();
     if (drawSaveTimer) serializeDrawing();
     save(true);
     injectChatImageButtons();
+    injectNovaImageButtons();
 }
 
 // A switch, not a checkbox: the same row markup everywhere so one block of CSS
@@ -2096,6 +2436,7 @@ function buildUI() {
                 <button class="mb-scope-btn" data-scope="global"><i class="fa-solid fa-globe fa-xs"></i> Global</button>
             </div>
             <div class="mb-header-right">
+                <button class="mb-icon-btn mb-retry-btn" id="mb-btn-retry" style="display:none" title="Повторить отправку — доска уже собрана"><i class="fa-solid fa-rotate-right"></i></button>
                 <button class="mb-icon-btn accent" id="mb-btn-analyze" title="Send board to AI"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
                 <button class="mb-icon-btn" id="mb-btn-ai-panel" title="AI Insights"><i class="fa-solid fa-book-open"></i></button>
                 <button class="mb-icon-btn" id="mb-btn-center" title="Center view"><i class="fa-solid fa-crosshairs"></i></button>
@@ -2107,6 +2448,7 @@ function buildUI() {
         <button class="mb-toolbar-toggle" id="mb-toolbar-toggle" title="Hide / show tools"><i class="fa-solid fa-chevron-up"></i></button>
         <div class="mb-toolbar" id="mb-toolbar">
             <button class="mb-tool-btn active" data-tool="select" title="Select/Move"><i class="fa-solid fa-arrow-pointer"></i></button>
+            <button class="mb-tool-btn has-menu" data-tool="area" id="mb-btn-area" title="Снимок области — отправить ИИ кусок доски как есть, вместе с рисунками; удерживайте, чтобы сменить рамку на произвольную"><i class="fa-solid fa-crop-simple"></i></button>
             <button class="mb-tool-btn" data-tool="text" title="Add Text"><i class="fa-solid fa-font"></i></button>
             <button class="mb-tool-btn" data-tool="image" title="Add Image"><i class="fa-solid fa-image"></i></button>
             <button class="mb-tool-btn has-menu" data-tool="collage" id="mb-btn-collage" title="Коллаж — удерживайте для выбора раскладки"><i class="fa-solid fa-grip-vertical"></i></button>
@@ -2139,6 +2481,7 @@ function buildUI() {
             <span class="mb-select-info">Выбрано: <b class="mb-select-count">0</b></span>
             <div class="mb-select-acts">
                 <button class="mb-select-btn ghost" id="mb-select-style" title="Стиль ответа"><i class="fa-solid fa-scale-balanced"></i> <span id="mb-style-chip">Сбалансированно</span></button>
+                <button class="mb-select-btn ghost" id="mb-select-area" title="Обвести область заново"><i class="fa-solid fa-crop-simple"></i></button>
                 <button class="mb-select-btn" id="mb-select-send"><i class="fa-solid fa-wand-magic-sparkles"></i> Отправить</button>
                 <button class="mb-select-btn ghost" id="mb-select-cancel">Отмена</button>
             </div>
@@ -2207,10 +2550,20 @@ function buildUI() {
                 ${switchRow('mb-tg-note', 'Авторские заметки', 'Заметка этого чата, персонажа или общая')}
                 <div class="mb-select-hint">Авторская заметка — то, что вписано в «Author’s Note»: как обстоят дела сейчас. Берётся заметка этого чата, к ней добавляется привязанная к персонажу, а если обеих нет — общая. Не длиннее ${NOTE_MAX} символов.</div>
                 <div class="mb-select-hint">Лорбуки подбираются так же, как в обычном ответе персонажа: по ключевым словам из заметок на доске и из последних сообщений. Значит, НПС, который живёт в лорбуке, приедет вместе с доской, если он на ней упомянут — а записи, помеченные как постоянные (синие), приезжают всегда. Отправляется не больше ${LORE_MAX} символов, чтобы запрос не раздулся.</div>
+                ${switchRow('mb-tg-bgsend', 'Отправлять в фоне', 'Сразу сворачивать окно ожидания')}
+                <div class="mb-select-hint">Доска собирается и уходит сама, пока вы пишете пост. Когда ответ придёт, всплывёт уведомление; нажмите на него, чтобы прочитать. Даже с выключенной настройкой окно ожидания можно свернуть кнопкой «Свернуть в фон».</div>
+                <span class="mb-settings-label">Значок фоновой отправки</span>
+                <div class="mb-corner-row mb-mini-row" id="mb-mini-style">
+                    <div class="mb-mini-opt" data-mini="bar"><i class="fa-solid fa-grip-lines"></i>Полоской</div>
+                    <div class="mb-mini-opt" data-mini="dot"><i class="fa-solid fa-circle-notch"></i>Кружком</div>
+                    <div class="mb-mini-opt" data-mini="off"><i class="fa-solid fa-eye-slash"></i>Не показывать</div>
+                </div>
+                <div class="mb-select-hint">Висит сверху, под панелью Таверны, чтобы не закрывать ни поле ввода, ни конец поста. Кружок — только вертушка, нажатие разворачивает обратно. «Не показывать» ничего не отменяет: доска всё равно уйдёт, а об ответе придёт уведомление.</div>
                 <button class="mb-settings-btn secondary" id="mb-btn-test-api"><i class="fa-solid fa-plug"></i> Проверить подключение</button>
                 <span class="mb-settings-label" style="margin-top:20px">Кнопки «+» в чате</span>
                 ${switchRow('mb-tg-quote', 'Цитаты', 'Кнопка «+» рядом с выделенным текстом')}
                 ${switchRow('mb-tg-image', 'Картинки', 'Кнопка «+» в углу картинок в чате')}
+                ${switchRow('mb-tg-nova', 'Картинки NOVA', 'Кнопка «+» на картинках в ленте, галерее и просмотрщике NOVA')}
                 <div class="mb-select-hint">Выключенная кнопка просто не появляется — всё уже прикреплённое на досках остаётся на месте.</div>
                 <span class="mb-settings-label">Где держать кнопку на картинке</span>
                 <div class="mb-corner-row" id="mb-pin-pos">
@@ -2327,6 +2680,7 @@ function buildUI() {
             <div class="mb-brush-panel" id="mb-avatar-picker"></div>
             <div class="mb-brush-panel" id="mb-brush-panel"></div>
             <div class="mb-brush-panel" id="mb-collage-picker"></div>
+            <div class="mb-brush-panel" id="mb-area-picker"></div>
             <div class="mb-brush-panel" id="mb-style-picker"></div>
         </div>
     </div></div>`).appendTo('body');
@@ -2514,10 +2868,188 @@ function togglePanel(sel, force) {
 // the trigger with CSS put it off-screen whenever the trigger sat near an edge —
 // on a phone the toolbar's size menu opened past the left margin, and reparenting
 // it to escape that pushed it below the fold entirely.
-function placeSelectMenu(selectEl, keepSide) {
+// On a phone a dropdown anchored to its trigger is a bad deal however carefully
+// it is placed: the trigger sits inside a scrolling panel, the list is taller
+// than the room under it, and half the screen is still the panel you were just
+// scrolling. So on a narrow screen the list stops pretending to hang off its
+// trigger and becomes a proper picker in the middle of the window — a titled
+// card over a dimmed page, with the current choice ticked and a way out at the
+// bottom. Same list, same handlers; only where it sits changes.
+function isPickerWidth() { return window.innerWidth <= 768; }
+
+// THE reason the lists were dead on a phone.
+//
+// `.mb-canvas-area` carries `touch-action: none` on mobile — it has to, or every
+// drag on the board would scroll the page instead. The dropdowns live inside the
+// settings panel, which lives inside that element, and touch-action is resolved
+// along the DOM ancestor chain, not the visual one: making the menu `position:
+// fixed` moves it on screen but changes nothing about who its ancestors are. So
+// the browser refused to scroll the list and refused to treat touches in it as
+// ordinary taps, no matter what the menu itself declared. The same subtree also
+// carries the board's own pointer handlers and a stopPropagation that eats
+// pointer events before they leave the panel.
+//
+// So while a list is open it is lifted out to <body>, where none of that applies,
+// and put back exactly where it was on close.
+let portalledMenu = null;
+function portalMenu(selectEl) {
     const menu = selectEl.querySelector('.mb-select-options');
+    if (!menu) return null;
+    unportalMenu();
+    menu._mbHome = selectEl;
+    document.body.appendChild(menu);
+    portalledMenu = menu;
+    attachMenuTouchScroll(menu);
+    return menu;
+}
+function unportalMenu() {
+    const m = portalledMenu;
+    portalledMenu = null;
+    if (!m) return;
+    m._mbScrollOff?.();
+    if (m._mbHome && m._mbHome.isConnected) m._mbHome.appendChild(m);
+    else m.remove();
+}
+
+// The list scrolls itself, by hand, and that is not paranoia.
+//
+// `touch-action: none` is on `.mb-canvas-area` (it has to be, or dragging the
+// board would scroll the page) — and it turns out to be on <body> as well, set by
+// something outside this extension and not by any rule that can be found in the
+// stylesheets. Either one is enough to stop the browser scrolling a list, and
+// there is no CSS this extension can write on the list itself that overrides an
+// ancestor. Moving the list to <body> was necessary and still not sufficient.
+//
+// So the finger is read directly: drag moves scrollTop, a flick coasts. This
+// cannot be switched off by anyone else's stylesheet, and it works the same on
+// every theme. preventDefault on a real drag also stops the browser from
+// synthesising a click at the end of it, which is exactly what should happen when
+// you were scrolling rather than choosing.
+function attachMenuTouchScroll(menu) {
+    let y0 = 0, top0 = 0, live = false, lastY = 0, lastT = 0, vel = 0, glide = 0;
+    const stopGlide = () => { cancelAnimationFrame(glide); glide = 0; };
+    const onStart = (e) => {
+        if (e.touches.length !== 1) { live = false; return; }
+        stopGlide();
+        y0 = lastY = e.touches[0].clientY;
+        lastT = performance.now();
+        top0 = menu.scrollTop;
+        vel = 0;
+        live = true;
+    };
+    const onMove = (e) => {
+        if (!live || e.touches.length !== 1) return;
+        const y = e.touches[0].clientY;
+        const dy = y - y0;
+        menu.scrollTop = top0 - dy;
+        const now = performance.now(), dt = now - lastT;
+        if (dt > 0) vel = (y - lastY) / dt;      // px per ms
+        lastY = y; lastT = now;
+        // Past the slop this is a scroll, and the browser must keep its hands off.
+        if (Math.abs(dy) > 6 && e.cancelable) e.preventDefault();
+    };
+    const onEnd = () => {
+        if (!live) return;
+        live = false;
+        if (Math.abs(vel) < 0.15) return;        // a tap or a slow drag: no coast
+        let v = vel * 16;                        // per frame
+        const step = () => {
+            menu.scrollTop -= v;
+            v *= 0.94;
+            if (Math.abs(v) > 0.4 && menu.scrollTop > 0 &&
+                menu.scrollTop < menu.scrollHeight - menu.clientHeight) {
+                glide = requestAnimationFrame(step);
+            } else glide = 0;
+        };
+        glide = requestAnimationFrame(step);
+    };
+    menu.addEventListener('touchstart', onStart, { passive: true });
+    menu.addEventListener('touchmove', onMove, { passive: false });
+    menu.addEventListener('touchend', onEnd, { passive: true });
+    menu.addEventListener('touchcancel', onEnd, { passive: true });
+    menu._mbScrollOff = () => {
+        stopGlide();
+        menu.removeEventListener('touchstart', onStart);
+        menu.removeEventListener('touchmove', onMove);
+        menu.removeEventListener('touchend', onEnd);
+        menu.removeEventListener('touchcancel', onEnd);
+        menu._mbScrollOff = null;
+    };
+}
+// Where a row's own dropdown is, whether the list is at home or lifted out.
+function selectOf(rowEl) {
+    const menu = rowEl.closest('.mb-select-options');
+    return (menu && menu._mbHome) || rowEl.closest('.mb-custom-select') || null;
+}
+
+function showSelectScrim() {
+    if (!$('#mb-select-scrim').length) $('body').append('<div id="mb-select-scrim"></div>');
+    $('#mb-select-scrim').css('display', 'block');
+}
+function hideSelectScrim() { $('#mb-select-scrim').remove(); }
+
+// What this list is for. The settings panel already labels every dropdown, so
+// the label right above it is the honest answer; the toolbar's has none, hence
+// the map.
+const SELECT_TITLES = {
+    'mb-theme-dropdown': 'Тема доски',
+    'mb-api-dropdown': 'Профиль подключения',
+    'mb-style-dropdown': 'Стиль ответа',
+    'mb-stroke-dropdown': 'Толщина линии',
+};
+function selectTitle(selectEl) {
+    if (SELECT_TITLES[selectEl.id]) return SELECT_TITLES[selectEl.id];
+    const prev = selectEl.previousElementSibling;
+    if (prev?.classList?.contains('mb-settings-label')) return prev.textContent.trim();
+    return 'Выберите';
+}
+// The head and the tail are a <header> and a <button> on purpose: the option
+// handler is delegated on `.mb-select-options div`, and anything added here as a
+// div would become a selectable row.
+function decorateAsPicker(menu, title) {
+    if (!menu.querySelector('.mb-sel-head')) {
+        menu.insertAdjacentHTML('afterbegin', '<header class="mb-sel-head"></header>');
+        menu.insertAdjacentHTML('beforeend', '<button class="mb-sel-cancel" type="button">Отмена</button>');
+    }
+    menu.querySelector('.mb-sel-head').textContent = title;
+}
+function undecoratePicker(menu) {
+    menu.querySelector('.mb-sel-head')?.remove();
+    menu.querySelector('.mb-sel-cancel')?.remove();
+}
+
+function placeSelectMenu(selectEl, keepSide) {
+    // Lifted out to <body> before anything is measured — see portalMenu.
+    const menu = (portalledMenu && portalledMenu._mbHome === selectEl)
+        ? portalledMenu : portalMenu(selectEl);
     if (!menu) return;
     const pad = 8;
+
+    if (isPickerWidth()) {
+        selectEl._mbMenuSide = 'picker';
+        menu.classList.add('mb-picker');
+        decorateAsPicker(menu, selectTitle(selectEl));
+        // Placed with `top` and an explicit size, never with `bottom` or `inset`.
+        // <html> carries a transform in SillyTavern and is therefore the
+        // containing block for position:fixed — and it measures zero high, so
+        // anything anchored to its bottom edge lands above the top of the screen.
+        const vh = visibleHeight();   // the keyboard's share is already excluded
+        const vw = window.innerWidth;
+        const w = Math.min(420, vw - 32);
+        // A card, not a second screen: enough of the page stays visible around it
+        // that it never reads as "the whole app changed".
+        const maxH = Math.round(vh * 0.68);
+        const base = `position:fixed;left:${Math.round((vw - w) / 2)}px;right:auto;` +
+                     `width:${w}px;max-width:none;max-height:${maxH}px;overflow-y:auto`;
+        menu.style.cssText = `${base};display:block;visibility:hidden;top:0`;
+        const h = Math.min(menu.offsetHeight, maxH);
+        menu.style.cssText = `${base};display:block;top:${Math.max(10, Math.round((vh - h) / 2))}px;z-index:1000004`;
+        showSelectScrim();
+        return;
+    }
+
+    menu.classList.remove('mb-picker');
+    undecoratePicker(menu);
     // Measure at natural size first.
     menu.style.cssText = 'position:fixed;visibility:hidden;display:block;max-height:none;left:0;top:0;right:auto';
     const mw = menu.offsetWidth, mh = menu.offsetHeight;
@@ -2553,8 +3085,12 @@ function placeSelectMenu(selectEl, keepSide) {
 let menuScrollHook = null;
 function trackSelectMenu(selectEl) {
     untrackSelectMenu();
+    // A centred picker is not anchored to anything, so there is nothing to
+    // re-anchor and nothing to lose sight of.
+    if (selectEl._mbMenuSide === 'picker') return;
     const onScroll = (e) => {
         if (e.target?.classList?.contains('mb-select-options')) return; // scrolling inside the menu
+        if (!selectEl.isConnected) { untrackSelectMenu(); return; }
         const r = selectEl.getBoundingClientRect();
         if (r.bottom < 0 || r.top > window.innerHeight) {
             $(selectEl).removeClass('open');
@@ -2577,6 +3113,7 @@ function untrackSelectMenu() {
 function selectTool(t) {
     cancelStroke();
     cancelLink();
+    cancelArea();
     tool = t;
     // The grid / timeline / tree buttons are switches, not tools; they light up on
     // their own state and must not be cleared here.
@@ -2586,6 +3123,13 @@ function selectTool(t) {
     $('#mb-draw-canvas').toggleClass('active', isDraw);
     $('#mb-canvas-area').toggleClass('drawing', isDraw);
     $('#mb-canvas-area').toggleClass('linking', t === 'link');
+    $('#mb-canvas-area').toggleClass('area-picking', t === 'area');
+    if (t === 'area') {
+        toastr?.info(areaMode === 'free'
+            ? 'Обведите кусок доски — ИИ увидит ровно то, что внутри петли, вместе с рисунками'
+            : 'Протяните рамку — ИИ увидит ровно этот кусок доски, вместе с рисунками',
+            'Снимок области', { timeOut: 3000 });
+    }
     if (t === 'text') addCard('', 'text');
     if (t === 'image') $('#mb-file-input').trigger('click');
     if (t === 'collage') $('#mb-collage-input').trigger('click');
@@ -2854,25 +3398,54 @@ async function paintInkOntoOutput(octx, box, s, layer = 'below') {
 // The ink layer is a screen-space overlay, so a clone of the board doesn't carry
 // it. Repaint legacy raster + vector strokes into the clone's canvas, in board
 // coordinates, before rasterizing.
+// The board has two ink layers, and the capture used to have one. Every stroke —
+// including the ones deliberately drawn ON TOP of the photos — was painted onto
+// the single canvas that sits *under* the cards, so a circle round someone's
+// face, an arrow across two pictures, anything marked on a photo simply vanished
+// behind it in the image the character was shown. The clone gets both layers, in
+// the same order the board has them.
 async function paintInkOntoClone(clone) {
     const cloneCanvas = clone.querySelector('#mb-draw-canvas');
     if (!cloneCanvas) return;
-    cloneCanvas.width = DRAW_RES; cloneCanvas.height = DRAW_RES;
-    const c2 = cloneCanvas.getContext('2d');
-    c2.setTransform(DRAW_SCALE, 0, 0, DRAW_SCALE, 0, 0);
-    c2.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+    const setup = (cv) => {
+        cv.width = DRAW_RES; cv.height = DRAW_RES;
+        const cx = cv.getContext('2d');
+        cx.setTransform(DRAW_SCALE, 0, 0, DRAW_SCALE, 0, 0);
+        cx.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+        cx.lineCap = 'round'; cx.lineJoin = 'round';
+        return cx;
+    };
+    const below = setup(cloneCanvas);
+
     const legacy = getBoard().drawings;
     if (legacy) {
         const im = new Image();
         im.src = legacy;
-        try { await im.decode(); c2.drawImage(im, 0, 0, BOARD_SIZE, BOARD_SIZE); } catch (e) {}
+        try { await im.decode(); below.drawImage(im, 0, 0, BOARD_SIZE, BOARD_SIZE); } catch (e) {}
     }
     // The character should see the connections too — a thread with "лжёт ему" on
     // it is as much a note as anything written on a card.
-    renderTimeline(c2, p => p, 1);
-    renderLinks(c2, p => p, 1);
+    renderTimeline(below, p => p, 1);
+    renderLinks(below, p => p, 1);
+
+    const above = boardStrokes().filter(s => s.a && s.p && s.p.length >= 2);
     for (const s of boardStrokes()) {
-        if (s.p && s.p.length >= 2) paintStroke(c2, s, p => p, 1);
+        if (!s.p || s.p.length < 2 || s.a) continue;
+        paintStroke(below, s, p => p, 1);
+    }
+    // A second canvas over the cards, made only when there is something for it.
+    // The board's own top layer is a viewport-sized overlay outside the cloned
+    // element, so it cannot simply be copied — it is repainted in board
+    // coordinates instead.
+    if (above.length) {
+        const top = document.createElement('canvas');
+        top.className = 'mb-draw-canvas';
+        // Above every card: card z-indexes run from 1 upwards and are not capped.
+        top.style.cssText = `position:absolute;left:0;top:0;width:${BOARD_SIZE}px;height:${BOARD_SIZE}px;` +
+                            `z-index:2000000;pointer-events:none`;
+        clone.appendChild(top);
+        const tctx = setup(top);
+        for (const s of above) paintStroke(tctx, s, p => p, 1);
     }
     clone.querySelector('#mb-grid-layer')?.remove();
 }
@@ -3213,6 +3786,18 @@ function bindEvents() {
         if (!$(e.target).closest('#mb-collage-picker, #mb-btn-collage').length) $('#mb-collage-picker').removeClass('open');
     });
 
+    // ---- area select: tap arms it, long-press chooses rectangle or free loop
+    setAreaMode(areaModePref());
+    let areaHold = null;
+    $('#mb-btn-area').on('pointerdown', () => { areaHold = setTimeout(openAreaPicker, 450); })
+                     .on('pointerup pointerleave pointercancel', () => clearTimeout(areaHold))
+                     .on('contextmenu', e => { e.preventDefault(); openAreaPicker(); });
+    $(document).on('click', e => {
+        if (holdJustFired()) return;
+        if (!$(e.target).closest('#mb-area-picker, #mb-btn-area').length) $('#mb-area-picker').removeClass('open');
+    });
+    $('#mb-select-area').on('click', () => selectTool('area'));
+
     // ---- grid: tap switches it on and off, long-press separates lines from snapping
     let gridHold = null;
     $('#mb-btn-grid').on('pointerdown', () => { gridHold = setTimeout(openGridPicker, 450); })
@@ -3467,26 +4052,111 @@ function bindEvents() {
         toastr?.[n ? 'success' : 'info'](n ? `Обрезано стикеров: ${n}` : 'Обрезать было нечего');
     });
     // Custom Selects Logic
+    //
+    // A settings panel is a tall scrolling column, and on a phone every flick
+    // through it starts on top of something. The dropdowns used to open on a bare
+    // `click`, and a click is exactly what a browser reports when a scroll begins
+    // on an element and the page does not move far — so the profile list opened
+    // while you were merely scrolling past it. Worse, the same was true inside the
+    // list: dragging a long menu could pick whatever was under your thumb.
+    //
+    // So a press is only a tap if the finger stayed put and the browser did not
+    // take the gesture over for scrolling, and nothing counts as a tap for a
+    // moment after anything on the page has scrolled.
+    const TAP_SLOP = 12;
+    let selPress = null, lastScrollAt = 0;
+    // Deliberately short, and used for ONE thing only: not opening a dropdown on
+    // the tap that ends a flick through the settings panel. It is never applied to
+    // the rows of an open picker — a picker is a card in the middle of the screen
+    // with nothing to scroll past, and a guard there only eats real taps.
+    const scrolledJustNow = () => Date.now() - lastScrollAt < 200;
+    document.addEventListener('scroll', () => { lastScrollAt = Date.now(); },
+                              { capture: true, passive: true });
+    // Bound natively, in the capture phase, and not through jQuery: the settings
+    // panel stops pointerdown/move/up from leaving it (so they never reach the pan
+    // handler), and every dropdown that matters lives inside that panel. A
+    // bubbling listener on document would therefore see none of these presses —
+    // which is exactly how this guard came to do nothing at all the first time.
+    //
+    // One listener rather than a delegated pair, too: a selector matching both the
+    // option row and the select around it fires twice for one press, and the
+    // second call overwrites the row with its container — losing the very element
+    // the movement has to be judged against.
+    document.addEventListener('pointerdown', e => {
+        const el = e.target?.closest?.('.mb-select-options div, .mb-custom-select');
+        selPress = el ? { el, x: e.clientX, y: e.clientY, tap: true } : null;
+    }, true);
+    // How far the finger travelled is the ONLY thing that decides this, and both
+    // event families are watched because a browser that is thinking about
+    // scrolling may stop sending one of them.
+    //
+    // What is deliberately NOT used: pointercancel. Chrome fires it on a perfectly
+    // ordinary tap inside a scrollable box — it is the browser saying "I might
+    // take this over", not "the user dragged" — and it then delivers the click
+    // anyway. Treating that as "not a tap" is precisely what left the buttons in
+    // the list dead on a real phone while every synthetic test passed.
+    const travelled = (x, y) =>
+        Math.abs(x - selPress.x) > TAP_SLOP || Math.abs(y - selPress.y) > TAP_SLOP;
+    document.addEventListener('pointermove', e => {
+        if (selPress && travelled(e.clientX, e.clientY)) selPress.tap = false;
+    }, true);
+    document.addEventListener('touchmove', e => {
+        const t = e.touches?.[0];
+        if (selPress && t && travelled(t.clientX, t.clientY)) selPress.tap = false;
+    }, { capture: true, passive: true });
+    // Cleared after the click that follows the release, not before it. A cancelled
+    // gesture keeps its verdict until the next press replaces it.
+    const clearPress = () => {
+        const p = selPress;
+        setTimeout(() => { if (selPress === p) selPress = null; }, 0);
+    };
+    document.addEventListener('pointerup', clearPress, true);
+    // `strict` adds the scroll guard, and only the dropdown trigger asks for it.
+    const wasTap = (el, strict) =>
+        (!strict || !scrolledJustNow()) && (!selPress || selPress.el !== el || selPress.tap);
+
+    // Puts every list back the way it was found: no fixed placement, no picker
+    // chrome, closed.
+    const closeAllSelects = () => {
+        untrackSelectMenu();
+        hideSelectScrim();
+        // Home first: everything below addresses the list through its owner.
+        unportalMenu();
+        $('.mb-custom-select').removeClass('open').each(function() {
+            const m = this.querySelector('.mb-select-options');
+            if (!m) return;
+            m.style.cssText = '';
+            m.classList.remove('mb-picker');
+            undecoratePicker(m);
+        });
+    };
+
     $(document).on('click', '.mb-custom-select', function(e) {
         e.stopPropagation();
-        $('.mb-custom-select').not(this).removeClass('open').each(function() {
-            const m = this.querySelector('.mb-select-options');
-            if (m) m.style.cssText = '';
-        });
+        if (!wasTap(this, true)) return;
         const opening = !$(this).hasClass('open');
-        $(this).toggleClass('open', opening);
-        if (opening) { placeSelectMenu(this); trackSelectMenu(this); }
-        else untrackSelectMenu();
+        closeAllSelects();
+        if (!opening) return;
+        $(this).addClass('open');
+        placeSelectMenu(this);
+        trackSelectMenu(this);
     });
     $(document).on('click', '.mb-select-options div', function(e) {
         e.stopPropagation();
-        const $sel = $(this).closest('.mb-custom-select');
+        if (!wasTap(this)) return;
+        // Not `closest('.mb-custom-select')`: while the list is open it has been
+        // lifted out to <body> and is no longer inside its own dropdown.
+        const selEl = selectOf(this);
+        if (!selEl) return;
+        const $sel = $(selEl);
         const val = $(this).data('val');
-        $sel.removeClass('open');
-        this.parentNode.style.cssText = '';   // undo the fixed placement
+        // Read before closing: closing strips the picker's header and footer, and
+        // the sync helpers below expect a list in its resting state.
+        const label = $(this).text();
+        closeAllSelects();
         const id = $sel.attr('id');
         if (id === 'mb-theme-dropdown') {
-            $sel.find('.mb-select-value').text($(this).text());
+            $sel.find('.mb-select-value').text(label);
             localStorage.setItem('mb_theme', val); applyTheme(val);
         } else if (id === 'mb-stroke-dropdown') {
             drawSize = parseInt(val);
@@ -3500,17 +4170,20 @@ function bindEvents() {
             save();
         }
     });
-    const closeAllSelects = () => {
-        untrackSelectMenu();
-        $('.mb-custom-select').removeClass('open').each(function() {
-            const m = this.querySelector('.mb-select-options');
-            if (m) m.style.cssText = '';   // drop the fixed placement again
-        });
-    };
+    // The cancel button is a <button>, not a row, so it never looks like a choice
+    // to the handler above.
+    $(document).on('click', '.mb-sel-cancel', function(e) {
+        e.stopPropagation();
+        closeAllSelects();
+    });
     $(document).on('click', closeAllSelects);
+    $(document).on('click', '#mb-select-scrim', function(e) { e.stopPropagation(); closeAllSelects(); });
     // A menu pinned in viewport coordinates would otherwise hang in mid-air.
     window.addEventListener('resize', closeAllSelects);
     window.visualViewport?.addEventListener('resize', closeAllSelects);
+    // The pill is pinned the same way and has to be re-placed rather than dropped.
+    window.addEventListener('resize', placeAiMini);
+    window.visualViewport?.addEventListener('resize', placeAiMini);
 
     // AI Analysis Logic
     if (boards.global?.apiContextSize) setCtxSize(boards.global.apiContextSize, null);
@@ -3535,6 +4208,22 @@ function bindEvents() {
         // Takes effect at once, in both directions: switching it off hands every
         // full-size bitmap currently on the board back to the system.
         refreshImgTiers();
+    });
+    $('#mb-tg-bgsend').on('change', function() { setUiPref('bgSend', this.checked); });
+    $('#mb-mini-style').on('click', '.mb-mini-opt', function() {
+        if (!boards.global) boards.global = { cards: [] };
+        boards.global.miniStyle = $(this).data('mini');
+        save();
+        syncMiniStyleUI();
+        // Show the change at once if a send happens to be folded right now.
+        if (aiJob?.bg) { hideAiMini(); showAiMini(aiJob.stage); }
+    });
+    $('#mb-tg-nova').on('change', function() {
+        setUiPref('showNovaBtn', this.checked);
+        if (this.checked) {
+            $('#nova-backdrop img').removeData('mb-nova');
+            injectNovaImageButtons();
+        } else $('.mb-nova-pin, .mb-nova-viewer-btn').remove();
     });
     $('#mb-tg-image').on('change', function() {
         setUiPref('showImageBtn', this.checked);
@@ -3666,12 +4355,39 @@ function bindEvents() {
             $('#mb-style-picker').removeClass('open');
         }
     });
-    $('#mb-select-cancel').on('click', () => setSelectMode(false));
+    $('#mb-select-cancel').on('click', () => { clearAreaCrop(); setSelectMode(false); });
     $('#mb-select-send').on('click', async () => {
-        if (!picked.size) return;
+        if (!picked.size && !areaCrop) return;
         await analyzeBoard();
-        setSelectMode(false);
     });
+
+    // ---- the send overlay, the pill it folds into, and the retry it leaves behind.
+    // Delegated: the overlay is built the first time a board is sent, not with the
+    // rest of the UI, and the pill comes and goes with every background job.
+    // Same reasoning as the fold button: react to the press, not to the click.
+    $(document).on('pointerdown', '#mb-ai-stop, #mb-ai-mini .mb-mini-stop', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        stopAiJob();
+    });
+    $(document).on('click', '#mb-ai-stop, #mb-ai-mini .mb-mini-stop', e => e.stopPropagation());
+    // On pointerdown, not click. The press lands in the middle of the capture,
+    // which is a long stretch of main-thread work — waiting for the click event,
+    // and then for a repaint that cannot happen until that work yields, is what
+    // made "свернуть" feel like it needed a moment to think about it. Reacting to
+    // the press and hiding the overlay by direct style, before any of our own
+    // code runs, takes the screen back at the first frame the browser can draw.
+    $(document).on('pointerdown', '#mb-ai-bg', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        const o = document.getElementById('mb-ai-overlay');
+        if (o) o.style.display = 'none';
+        foldAiToBackground();
+    });
+    $(document).on('click', '#mb-ai-bg', e => e.stopPropagation());
+    $(document).on('click', '#mb-ai-mini', function(e) {
+        if ($(e.target).closest('.mb-mini-stop').length) return;
+        unfoldAiJob();
+    });
+    $('#mb-btn-retry').on('click', () => analyzeBoard({ reuse: true }));
     $('#mb-btn-test-api').on('click', testConnection);
     $('#mb-btn-ai-panel').on('click', () => {
         aiPanelOpen = togglePanel('#mb-ai-panel');
@@ -3986,6 +4702,7 @@ function bindEvents() {
     if (typeof eventSource !== 'undefined') {
         eventSource.on(event_types.CHAT_CHANGED, scheduleInject);
     }
+    watchNova();
 }
 
 // A real icon rather than a "+" character: a text plus is centred on its font's
@@ -4099,17 +4816,126 @@ async function compressImageSrc(src, maxDim = 1000, quality = 0.8, force = false
     });
 }
 
-$(document).on('click', '.mb-chat-img-pin', async function(e) {
-    e.stopPropagation(); e.preventDefault();
-    const $img = $(this).parent().find('img').first();
-    const src = $img.attr('src');
-    if (src) {
-        if (typeof toastr !== 'undefined') toastr.info('Optimizing image...', '', {timeOut: 1000});
+// One path from "a picture somewhere on the page" to "a card on the board", so
+// the chat pin, the NOVA pin and the NOVA viewer button all behave identically.
+async function pinSrcToBoard(src) {
+    if (!src) return;
+    toastr?.info('Готовлю картинку…', '', { timeOut: 1000 });
+    try {
         const img = await makeCardImage(src);
         addCard(img.content, 'image', undefined, undefined, img.thumb, img.origW);
-        if (typeof toastr !== 'undefined') toastr.success('Pinned to MoodBoard!');
+        toastr?.success('Добавлено на MoodBoard');
+    } catch (e) {
+        console.error(LOG, e);
+        toastr?.error('Не удалось прикрепить картинку: ' + (e?.message || e));
     }
+}
+
+$(document).on('click', '.mb-chat-img-pin', async function(e) {
+    e.stopPropagation(); e.preventDefault();
+    await pinSrcToBoard($(this).parent().find('img').first().attr('src'));
 });
+
+// ===== NOVA =====
+// NOVA's feed lives in #nova-backdrop, entirely outside #chat, so the pin that
+// the chat scan hangs on every picture never reached a single one of them.
+// Three places are worth a button: a photo attached to a post, a cell of the
+// gallery, and the full-screen viewer — where the button joins NOVA's own row of
+// round controls instead of being pinned to a corner.
+// Its own class, and NOT the chat pin's. Sharing `mb-chat-img-pin` meant sharing
+// the chat pin's click handler as well: one tap ran both, and every picture
+// landed on the board twice.
+//
+// Styled as a NOVA control rather than a MoodBoard one — NOVA's dark surface and
+// border, its round shape — but carrying MoodBoard's accent and a pushpin rather
+// than NOVA's blue and a plus, so it reads as belonging to the panel while never
+// being mistaken for one of NOVA's own buttons.
+const NOVA_PIN_HTML = `<div class="mb-nova-pin" title="Прикрепить на MoodBoard"><i class="fa-solid fa-thumbtack"></i></div>`;
+const NOVA_VIEWER_BTN = `<div class="nova-icon-btn mb-nova-viewer-btn" title="Прикрепить на MoodBoard">
+    <i class="fa-solid fa-thumbtack"></i></div>`;
+
+function injectNovaImageButtons() {
+    const root = document.getElementById('nova-backdrop');
+    if (!root) return;
+    if (!uiPref('showNovaBtn')) { $('.mb-nova-pin, .mb-nova-viewer-btn').remove(); return; }
+
+    $(root).find('img.nova-attached-image, .nova-gallery-item img').each(function() {
+        const $img = $(this);
+        // Same order as the chat scan: the cheap flag before the measurement, or
+        // every re-render of the feed costs a forced layout per picture.
+        if ($img.data('mb-nova')) return;
+        const box = this.getBoundingClientRect();
+        if ((box.width && box.width < 56) || (box.height && box.height < 56)) return;
+        $img.data('mb-nova', true);
+
+        let $p = $img.parent();
+        // A gallery cell is exactly the size of its picture, so the button can go
+        // straight in. A post is not: the picture sits in a column as wide as the
+        // whole feed, and a button in *that* corner floats in empty space beside
+        // the photo. Those get a wrapper that hugs the image instead.
+        const tight = $p.hasClass('nova-gallery-item') || $p.hasClass('mb-nova-wrap');
+        if (!tight) {
+            const $wrap = $('<div class="mb-nova-wrap"></div>');
+            $img.wrap($wrap);
+            $p = $img.parent();
+        }
+        if ($p.css('position') === 'static') $p.css('position', 'relative');
+        if (!$p.find('.mb-nova-pin').length) $p.append(NOVA_PIN_HTML);
+    });
+
+    // The viewer is rebuilt from scratch on every open and on every reroll of the
+    // picture, so this is a presence check rather than a one-time injection.
+    const acts = root.querySelector('#nova-image-viewer .nova-photo-viewer-actions');
+    if (acts && !acts.querySelector('.mb-nova-viewer-btn')) {
+        acts.insertAdjacentHTML('afterbegin', NOVA_VIEWER_BTN);
+    }
+}
+
+$(document).on('click', '.mb-nova-pin', async function(e) {
+    e.stopPropagation(); e.preventDefault();
+    await pinSrcToBoard($(this).parent().find('img').first().attr('src'));
+});
+$(document).on('click', '.mb-nova-viewer-btn', async function(e) {
+    e.stopPropagation(); e.preventDefault();
+    const img = document.querySelector('#nova-image-viewer .nova-photo-viewer-image-container img');
+    await pinSrcToBoard(img?.getAttribute('src'));
+});
+
+// NOVA's panel is built on first use, so there may be nothing to watch when the
+// board loads. Look for it now and then, stop looking the moment it appears, and
+// from then on react to its own mutations the way the chat scan does.
+function watchNova() {
+    let observer = null;
+    let timer = null;
+    // Returns whether there is anything left to wait for. "Not there yet" is
+    // false, not true — getting that the wrong way round made the very first call
+    // report success and the poll never started at all.
+    const attach = () => {
+        const root = document.getElementById('nova-backdrop');
+        if (!root) return false;
+        if (observer) return true;
+        const schedule = () => {
+            if (timer) return;
+            timer = setTimeout(() => { timer = null; injectNovaImageButtons(); }, 350);
+        };
+        observer = new MutationObserver(records => {
+            for (const r of records) {
+                for (const n of r.addedNodes) {
+                    if (n.nodeType !== 1) continue;
+                    if (n.tagName === 'IMG' || n.querySelector?.('img')) { schedule(); return; }
+                }
+            }
+        });
+        observer.observe(root, { childList: true, subtree: true });
+        injectNovaImageButtons();
+        return true;
+    };
+    if (attach()) return;
+    // NOVA builds its panel on first use, which may be an hour from now, so this
+    // keeps looking. It is one hash lookup every few seconds and stops for good
+    // the moment the panel exists.
+    const poll = setInterval(() => { if (attach()) clearInterval(poll); }, 2500);
+}
 
 // ===== PINCH ZOOM (mobile) =====
 function getTouchDist(t1, t2) { return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY); }
@@ -4124,6 +4950,7 @@ function onTouchStart(e) {
         cancelStroke();
         cancelDrag();
         cancelLink();
+        cancelArea();
         tlDrag = null;
         isPinching = true;
         $('#mb-canvas-area').addClass('is-panning');
@@ -4210,6 +5037,8 @@ const picked = new Set();
 function setSelectMode(on) {
     selectMode = on;
     if (!on) picked.clear();
+    // A region and a card selection answer the same question; only one at a time.
+    else if (areaCrop) { areaCrop = null; renderInk(); }
     $('#mb-canvas-area').toggleClass('mb-selecting', on);
     refreshSelectionUI();
 }
@@ -4236,9 +5065,183 @@ function refreshSelectionUI() {
         $(this).toggleClass('mb-picked', selectMode && picked.has(this.dataset.id));
     });
     const $bar = $('#mb-select-bar');
-    $bar.toggleClass('open', selectMode);
-    $bar.find('.mb-select-count').text(picked.size);
+    // The same bar serves both answers to "what am I sending": a set of cards, or
+    // a piece of the board.
+    $bar.toggleClass('open', selectMode || !!areaCrop);
+    if (areaCrop) {
+        const b = areaCrop.box;
+        $bar.find('.mb-select-info').html(
+            `<i class="fa-solid fa-crop-simple"></i> Область <b>${Math.round(b.w)}×${Math.round(b.h)}</b>`);
+    } else {
+        $bar.find('.mb-select-info').html(`Выбрано: <b class="mb-select-count">${picked.size}</b>`);
+    }
 }
+// ===== AREA SNAPSHOT =====
+// Not "pick these cards" — a photograph of a piece of the board, exactly as it
+// looks. Selecting cards crops to the cards' own bounding box and throws every
+// other card away, so a drawing next to them, an arrow across them, a scribble
+// over a photo — none of it survives, and the character is asked about a picture
+// that is missing the half you drew by hand.
+//
+// A region takes whatever is inside it and nothing else: every card, every
+// stroke, the threads, the timeline. Rectangle or free loop; a free loop is
+// masked down to its own shape so the crop really is the shape you drew.
+let areaMode = 'rect';   // 'rect' | 'free'
+let areaSel = null;      // the region being drawn right now
+let areaCrop = null;     // the region that has been chosen: { kind, pts, box }
+
+function areaModePref() {
+    const v = localStorage.getItem('mb_area_mode');
+    return v === 'free' ? 'free' : 'rect';
+}
+function setAreaMode(m) {
+    areaMode = (m === 'free') ? 'free' : 'rect';
+    localStorage.setItem('mb_area_mode', areaMode);
+    $('#mb-btn-area i').attr('class', areaMode === 'free'
+        ? 'fa-solid fa-draw-polygon' : 'fa-solid fa-crop-simple');
+}
+
+// The region as a closed polygon. A rectangle is stored as its two opposite
+// corners, so it becomes four points here and everything downstream can treat
+// both kinds the same way.
+function areaPolygon(sel) {
+    const p = sel.pts;
+    if (sel.kind === 'rect') {
+        if (p.length < 4) return [];
+        const x0 = Math.min(p[0], p[2]), x1 = Math.max(p[0], p[2]);
+        const y0 = Math.min(p[1], p[3]), y1 = Math.max(p[1], p[3]);
+        return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+    }
+    const out = [];
+    for (let i = 0; i + 1 < p.length; i += 2) out.push({ x: p[i], y: p[i + 1] });
+    return out;
+}
+function polyBounds(poly) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const q of poly) {
+        x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y);
+        x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y);
+    }
+    return { x0, y0, x1, y1 };
+}
+// Standard ray cast. Good enough for a hand-drawn loop, and it costs nothing at
+// the number of points a finger produces.
+function pointInPoly(pt, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i], b = poly[j];
+        if ((a.y > pt.y) !== (b.y > pt.y) &&
+            pt.x < (b.x - a.x) * (pt.y - a.y) / ((b.y - a.y) || 1e-9) + a.x) inside = !inside;
+    }
+    return inside;
+}
+// Which cards the region actually covers. Only used to decide whose written text
+// travels with the picture — the picture itself is a straight crop and needs no
+// such list.
+function cardsUnderArea(sel) {
+    const poly = areaPolygon(sel);
+    if (poly.length < 3) return [];
+    const bb = polyBounds(poly);
+    const ids = [];
+    document.querySelectorAll('#mb-canvas-inner .mb-card').forEach(el => {
+        const x = el.offsetLeft, y = el.offsetTop, w = el.offsetWidth, h = el.offsetHeight;
+        if (x > bb.x1 || x + w < bb.x0 || y > bb.y1 || y + h < bb.y0) return;
+        if (sel.kind === 'rect') { ids.push(el.dataset.id); return; }
+        const probes = [
+            { x: x + w / 2, y: y + h / 2 },
+            { x, y }, { x: x + w, y }, { x, y: y + h }, { x: x + w, y: y + h },
+        ];
+        if (probes.some(p => pointInPoly(p, poly))) ids.push(el.dataset.id);
+    });
+    return ids;
+}
+function areaBox(sel) {
+    const bb = polyBounds(areaPolygon(sel));
+    return { x: bb.x0, y: bb.y0, w: Math.max(1, bb.x1 - bb.x0), h: Math.max(1, bb.y1 - bb.y0) };
+}
+// Traces the region onto a context whose coordinates are `project`ed board ones.
+function traceArea(ctx, sel, project) {
+    const poly = areaPolygon(sel);
+    if (poly.length < 2) return false;
+    ctx.beginPath();
+    poly.forEach((q, i) => {
+        const s = project(q);
+        if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
+    });
+    ctx.closePath();
+    return true;
+}
+// Painted on the top canvas, over the cards. A chosen region also dims
+// everything outside it, so what will be sent is not a guess.
+function paintArea(ctx, sel, project, chosen) {
+    if (!ctx) return;
+    const poly = areaPolygon(sel);
+    if (poly.length < 2) return;
+    const accent = themeColor('--mb-accent', '#d4a574');
+    const cv = ctx.canvas;
+    ctx.save();
+    if (chosen) {
+        // Dim the whole board, then punch the region back out of the dimming.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.restore(); ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        if (traceArea(ctx, sel, project)) ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+    } else {
+        if (traceArea(ctx, sel, project)) {
+            ctx.fillStyle = accent;
+            ctx.globalAlpha = 0.16;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    }
+    traceArea(ctx, sel, project);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([7, 5]);
+    ctx.stroke();
+    ctx.restore();
+}
+function cancelArea() {
+    if (!areaSel) return;
+    areaSel = null;
+    innerRect = null;
+    renderInk();
+}
+// Drops a chosen region, putting the board back to normal.
+function clearAreaCrop() {
+    if (!areaCrop) return;
+    areaCrop = null;
+    refreshSelectionUI();
+    renderInk();
+}
+// Let go of the region: it becomes the crop for the next send, and the board
+// shows exactly what is inside it.
+function finishArea() {
+    if (!areaSel) return;
+    const sel = areaSel;
+    areaSel = null;
+    innerRect = null;
+    // A tap is not a region.
+    const tiny = sel.kind === 'rect'
+        ? Math.abs(sel.pts[2] - sel.pts[0]) * zoom < 6 && Math.abs(sel.pts[3] - sel.pts[1]) * zoom < 6
+        : sel.pts.length < 6;
+    if (tiny) { renderInk(); return; }
+
+    // A region and a card selection are two answers to the same question, so
+    // choosing one puts the other away.
+    if (selectMode) setSelectMode(false);
+    areaCrop = { kind: sel.kind, pts: sel.pts.slice(), box: areaBox(sel) };
+    refreshSelectionUI();
+    renderInk();
+    if (navigator.vibrate) navigator.vibrate(12);
+    // Back to the pointer: what you want next is the Отправить button, or to move
+    // the view. Redrawing the region is one tap away on the bar.
+    selectTool('select');
+}
+
 // Bounding box of the picked cards, in board coordinates.
 function pickedBounds() {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -6918,6 +7921,31 @@ function openGridPicker() {
     anchorPanel($p, document.getElementById('mb-btn-grid'));
 }
 
+// Hold the area button to choose how the region is drawn. Kept as a long-press
+// menu rather than two toolbar buttons: the toolbar is already two rows deep on
+// a phone, and the choice is made once and then left alone.
+function openAreaPicker() {
+    markHold();
+    const $p = $('#mb-area-picker').empty();
+    $p.append('<div class="mb-brush-title">Снимок области</div>');
+    const $g = $('<div class="mb-brush-grid"></div>').appendTo($p);
+    [['rect', 'Рамкой', 'crop-simple'], ['free', 'Произвольно', 'draw-polygon']].forEach(([k, label, icon]) => {
+        $(`<div class="mb-brush-opt ${k === areaMode ? 'active' : ''}">
+                <i class="fa-solid fa-${icon}" style="font-size:1.3em"></i><span>${label}</span>
+           </div>`)
+            .on('click', e => {
+                e.stopPropagation();
+                setAreaMode(k);
+                $g.find('.mb-brush-opt').removeClass('active');
+                $(e.currentTarget).addClass('active');
+                $p.removeClass('open');
+                selectTool('area');
+            }).appendTo($g);
+    });
+    $p.append('<div class="mb-select-hint" style="margin:8px 0 0">Это не выбор карточек, а фотография куска доски: ИИ увидит ровно то, что попало в кадр — карточки, рисунки, стрелки, нитки, — как оно выглядит на экране. Произвольная петля обрезается по своей форме.</div>');
+    anchorPanel($p, document.getElementById('mb-btn-area'));
+}
+
 // How much of the screen there actually is. On a phone `innerHeight` counts the
 // space behind the browser's own bars, so a panel sized against it hangs off
 // both ends — which is exactly what the reply-style menu did.
@@ -8583,7 +9611,7 @@ function renderInk() {
     const tl = getBoard().timeline;
     // Threads and the timeline share this layer: both are board furniture that
     // has to sit under the cards and follow the camera exactly as ink does.
-    const hasFurniture = boardLinks().length || linkDraft || (tl && tl.on);
+    const hasFurniture = boardLinks().length || linkDraft || (tl && tl.on) || areaSel || areaCrop;
     // This runs from the same rAF as the pan transform, so on a board with nothing
     // drawn on it we were clearing two full-screen canvases on every single frame
     // for nothing.
@@ -8613,6 +9641,10 @@ function renderInk() {
         const live = { t: tool, c: drawColor, w: drawSize, s: shapeKind, br: brushKind, p: strokePts };
         paintStroke(drawAbove ? topCtx : liveCtx, live, project, zoom);
     }
+    // The one being drawn wins the screen; otherwise the one already chosen is
+    // shown, with everything outside it dimmed.
+    if (areaSel) paintArea(topCtx, areaSel, project, false);
+    else if (areaCrop) paintArea(topCtx, areaCrop, project, true);
     inkDirty = false;
 }
 
@@ -8785,6 +9817,16 @@ function onPointerDown(e) {
         document.getElementById('mb-canvas-area').setPointerCapture?.(e.pointerId);
         return;
     }
+    // Drawing out a selection region. Checked before everything else that reacts
+    // to a press on the board: a sweep starts on top of cards as often as not.
+    if (tool === 'area' && onBoard) {
+        commitOpenEditor();
+        innerRect = document.getElementById('mb-canvas-inner').getBoundingClientRect();
+        const p = canvasPos(e);
+        areaSel = { kind: areaMode, pts: [p.x, p.y, p.x, p.y] };
+        document.getElementById('mb-canvas-area').setPointerCapture?.(e.pointerId);
+        return;
+    }
     // The link tool: press on a card and pull a thread out of it. Pressing
     // anywhere else either picks up a thread that is already there, or pans.
     if (tool === 'link' && onBoard) {
@@ -8823,6 +9865,21 @@ function onPointerMove(e) {
     let cx = e.clientX ?? (e.touches?.[0]?.clientX) ?? 0;
     let cy = e.clientY ?? (e.touches?.[0]?.clientY) ?? 0;
 
+    if (areaSel) {
+        const p = canvasPos(e);
+        if (areaSel.kind === 'rect') {
+            // Only the opposite corner moves.
+            areaSel.pts[2] = p.x; areaSel.pts[3] = p.y;
+        } else {
+            // Same 2-screen-pixel floor pushPoint uses, so a slow finger does not
+            // pile up a thousand samples for one loop.
+            const n = areaSel.pts.length;
+            const dx = (p.x - areaSel.pts[n - 2]) * zoom, dy = (p.y - areaSel.pts[n - 1]) * zoom;
+            if (dx * dx + dy * dy >= 4) areaSel.pts.push(p.x, p.y);
+        }
+        if (!panRAF) panRAF = requestAnimationFrame(() => { renderInk(); panRAF = null; });
+        return;
+    }
     if (linkDraft) {
         linkDraft.to = canvasPos(e);
         if (!panRAF) panRAF = requestAnimationFrame(() => { renderInk(); panRAF = null; });
@@ -8917,6 +9974,9 @@ function openCollagePart(card, $card, e) {
 
 function onPointerUp(e) {
     clearTimeout(cardHoldTimer); cardHoldTimer = null;
+    // pointercancel comes through here too — the system taking the gesture away
+    // is not "you let go", so the region is dropped rather than committed.
+    if (areaSel) { if (e.type === 'pointercancel') cancelArea(); else finishArea(); return; }
     if (linkDraft) { finishLink(e); return; }
     if (tlDrag) {
         tlDrag = null;

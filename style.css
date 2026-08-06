@@ -2054,3 +2054,286 @@
     flex: 1 1 auto; text-align: center; font-size: 0.9em;
     color: var(--mb-accent); font-variant-numeric: tabular-nums;
 }
+
+/* ===== SENDING TO THE AI: OVERLAY, PILL, RETRY ===== */
+/* Sized in viewport units for the same reason #mb-modal is: <html> carries a
+   transform in SillyTavern, so a percentage height here resolves against nothing
+   and the overlay collapses into a strip at the top of the screen. */
+#mb-ai-overlay {
+    display: none; position: fixed; top: 0; left: 0;
+    width: 100vw; height: 100vh; height: 100dvh;
+    background: rgba(0,0,0,0.88); z-index: 1000006;
+    flex-direction: column; align-items: center; justify-content: center;
+    color: #fff; padding: 24px; box-sizing: border-box; text-align: center;
+}
+#mb-ai-overlay .mb-ai-spin { color: var(--mb-accent, #d4a574); margin-bottom: 20px; }
+.mb-ai-title {
+    font-family: var(--mb-font-handwritten, cursive); font-size: 2em;
+    font-weight: normal; margin: 0; min-height: 1.2em;
+}
+.mb-ai-acts { display: flex; gap: 10px; margin-top: 26px; flex-wrap: wrap; justify-content: center; }
+.mb-ai-act {
+    padding: 10px 16px; border-radius: 10px; cursor: pointer;
+    font-family: inherit; font-size: 0.9em; font-weight: 600;
+    background: rgba(255,255,255,0.12); color: #fff;
+    border: 1px solid rgba(255,255,255,0.22); transition: 0.15s;
+}
+.mb-ai-act:hover { background: rgba(255,255,255,0.2); }
+.mb-ai-act.danger { background: rgba(239,68,68,0.22); border-color: rgba(239,68,68,0.55); }
+.mb-ai-act.danger:hover { background: rgba(239,68,68,0.35); }
+.mb-ai-overlay-hint {
+    margin-top: 16px; max-width: 380px; font-size: 0.76em;
+    line-height: 1.5; opacity: 0.5;
+}
+
+/* The folded job. Lives outside the modal, so it is still there — and still
+   stoppable — while you are writing in the chat. */
+/* `top` is set from JS (placeAiMini). Not `bottom`: <html> is the containing
+   block for position:fixed here and measures zero high, so a bottom-anchored
+   element lands above the top of the window. */
+#mb-ai-mini {
+    display: none; position: fixed; z-index: 1000005;
+    right: 14px; top: 0;
+    align-items: center; gap: 10px; max-width: min(320px, calc(100vw - 28px));
+    padding: 9px 10px 9px 14px; border-radius: 999px; cursor: pointer;
+    background: var(--mb-bg-secondary, rgba(22,28,35,0.96));
+    border: 1px solid var(--mb-accent, #d4a574);
+    color: var(--mb-text, #e8e8e8); font-size: 0.82em;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.55);
+}
+#mb-ai-mini > i { color: var(--mb-accent, #d4a574); flex-shrink: 0; }
+#mb-ai-mini .mb-mini-text {
+    flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#mb-ai-mini .mb-mini-stop {
+    flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.5);
+    color: #f87171; cursor: pointer; font-size: 0.95em; padding: 0;
+}
+#mb-ai-mini .mb-mini-stop:hover { background: rgba(239,68,68,0.38); }
+
+/* The send button spins while a job is in flight — .mb-tool-btn had this, the
+   header icons did not. */
+.mb-icon-btn.mb-busy { opacity: 0.6; cursor: progress; }
+.mb-icon-btn.mb-busy i { animation: mb-spin 1s linear infinite; }
+/* A board that was built and refused. The chip is the offer to send it again for
+   the price of one request. */
+.mb-retry-btn { color: #f0b429 !important; }
+.mb-retry-btn:hover { color: #ffd166 !important; }
+/* A reply that arrived while you were somewhere else. */
+#mb-btn-ai-panel { position: relative; }
+#mb-btn-ai-panel.mb-has-new::after {
+    content: ''; position: absolute; top: 1px; right: 0;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--mb-accent, #d4a574);
+    box-shadow: 0 0 0 2px var(--mb-bg-secondary, #161c23);
+}
+
+/* ===== AREA SELECT ===== */
+.mb-canvas-area.area-picking { cursor: crosshair; }
+.mb-canvas-area.area-picking .mb-card { cursor: crosshair; }
+
+/* ===== DROPDOWNS ===== */
+/* The arrow turns over when the list is open, so a menu that opened by accident
+   is at least visibly open. */
+.mb-custom-select::after { transition: transform 0.15s; }
+.mb-custom-select.open::after { transform: rotate(180deg); }
+.mb-custom-select.open { border-color: var(--mb-accent); }
+/* Rows are targets, not lines of text. */
+.mb-select-options div {
+    display: flex; align-items: center; min-height: 40px;
+    box-sizing: border-box; cursor: pointer;
+}
+.mb-rich-options div { display: flex; flex-direction: column; align-items: stretch; }
+/* Scrolling a menu must never drag the board or the panel underneath it — and it
+   must be allowed to scroll at all, which is why the open list is lifted out of
+   .mb-canvas-area (touch-action: none) and into <body>. See portalMenu. */
+.mb-select-options {
+    overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+}
+.mb-select-options div { touch-action: manipulation; }
+
+/* Sized like .mb-busy-overlay rather than with inset:0 — the containing block is
+   <html>, which is zero high, so inset:0 would give a scrim with no height. */
+/* A click-catcher, not a curtain. Dimming the whole page for a dropdown is far
+   too much ceremony for picking a line thickness — the card has a border and a
+   shadow and reads perfectly well on its own. This exists only so the tap that
+   dismisses the list does not also toggle whatever setting was underneath it. */
+#mb-select-scrim {
+    display: none; position: fixed; left: 0; width: 100vw;
+    top: var(--mb-vtop, 0px); height: 100vh; height: 100dvh; height: var(--mb-vh, 100dvh);
+    z-index: 1000003; background: transparent;
+}
+/* ===== THE CENTRED PICKER (narrow screens) =====
+   Same list, moved to the middle of the window and dressed as a card: a title so
+   you know what you are choosing, rows big enough for a thumb, a tick on the one
+   that is already set, and a way out at the bottom. */
+.mb-select-options.mb-picker {
+    border-radius: 18px; padding: 0;
+    border: 1px solid var(--mb-border);
+    box-shadow: 0 28px 70px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset;
+    animation: mb-picker-in 0.16s ease-out;
+    overscroll-behavior: contain;
+}
+@keyframes mb-picker-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: none; }
+}
+.mb-sel-head {
+    position: sticky; top: 0; z-index: 2;
+    display: block; padding: 16px 20px 12px;
+    font-size: 0.72em; font-weight: 700;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--mb-text-muted); text-align: center;
+    border-bottom: 1px solid var(--mb-border);
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-primary), var(--mb-bg-primary));
+}
+/* Rows: a comfortable thumb target, breathing room, and a hairline between them
+   rather than a boxed-in list. */
+.mb-select-options.mb-picker div {
+    position: relative;
+    min-height: 54px; padding: 14px 20px 14px 22px;
+    font-size: 15px; line-height: 1.35;
+    border-bottom: 1px solid rgba(255,255,255,0.045);
+    background: transparent;
+}
+.mb-select-options.mb-picker div:last-of-type { border-bottom: none; }
+/* A rich row carries its own description and is already two lines tall. */
+.mb-rich-options.mb-picker div { min-height: 0; gap: 4px; }
+.mb-rich-options.mb-picker .mb-opt-title { font-size: 15px; }
+.mb-rich-options.mb-picker .mb-opt-desc { font-size: 12.5px; }
+
+/* The current choice: a bar down the side and a tick, instead of a filled block
+   that reads as "pressed". */
+.mb-select-options.mb-picker div.active {
+    background: var(--mb-chip); color: var(--mb-accent); font-weight: 600;
+}
+.mb-select-options.mb-picker div.active::before {
+    content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
+    border-radius: 0 3px 3px 0; background: var(--mb-accent);
+}
+/* The generic rule adds ' ✓' after the title; in the picker it is a real tick
+   parked on the right-hand edge instead. */
+.mb-select-options.mb-picker div.active .mb-opt-title::after { content: none; }
+.mb-select-options.mb-picker div.active::after {
+    content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-weight: 900;
+    position: absolute; right: 18px; top: 50%; transform: translateY(-50%);
+    font-size: 12px; color: var(--mb-accent);
+}
+/* Pressing a row must look pressed — on touch there is no hover to do it. */
+.mb-select-options.mb-picker div:active { background: var(--mb-chip-strong); }
+@media (hover: none) {
+    .mb-select-options.mb-picker div:hover { background: transparent; color: inherit; }
+    .mb-select-options.mb-picker div.active:hover { background: var(--mb-chip); color: var(--mb-accent); }
+    .mb-select-options.mb-picker div:hover .mb-opt-desc { color: var(--mb-text-muted); }
+}
+.mb-sel-cancel {
+    position: sticky; bottom: 0; z-index: 2;
+    display: block; width: 100%; padding: 15px;
+    font-family: inherit; font-size: 0.92em; font-weight: 600;
+    color: var(--mb-text-muted); cursor: pointer;
+    border: none; border-top: 1px solid var(--mb-border);
+    background-color: var(--mb-board-bg);
+    background-image: linear-gradient(var(--mb-bg-primary), var(--mb-bg-primary));
+}
+.mb-sel-cancel:active { color: var(--mb-accent); background-image: linear-gradient(var(--mb-chip-strong), var(--mb-chip-strong)); }
+
+/* ===== MOBILE: THE CLOSE BUTTON GETS ITS OWN CORNER ===== */
+/* It used to sit in the row of header buttons, a thumb's width from "send the
+   board to the AI" — which is the one press in here you least want by mistake.
+   Out of the flow and into the corner, with room reserved so nothing runs under it. */
+@media (max-width: 768px) {
+    .mb-header { position: relative; padding-right: 48px; }
+    #mb-btn-close.mb-close {
+        position: absolute; top: 5px; right: 6px;
+        width: 38px; height: 38px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.35em; background: rgba(255,255,255,0.07);
+        border: 1px solid var(--mb-border); z-index: 12;
+    }
+    #mb-btn-close.mb-close:active { background: rgba(255,255,255,0.16); }
+    .mb-header-right { gap: 16px; }
+    /* Bigger targets for the rest of the row now that it has the space. */
+    .mb-header-right .mb-icon-btn { padding: 6px 2px; font-size: 1.2em; }
+    #mb-ai-mini { left: 12px; right: 12px; max-width: none; }
+}
+
+/* The board while it is being photographed for a background send: invisible and
+   inert, but still laid out, because offsetLeft/offsetWidth inside a
+   display:none subtree are 0 and the capture is built from exactly those. */
+#mb-modal.mb-capturing {
+    display: block !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+}
+
+/* A NOVA post image sits in a column as wide as the feed, so the pin needs a box
+   that hugs the picture rather than the column. Shrink-to-fit, and nothing else:
+   the image keeps its own display:block / max-width:100% / max-height sizing. */
+.mb-nova-wrap {
+    position: relative; display: inline-block;
+    max-width: 100%; margin: 0; padding: 0; line-height: 0;
+}
+/* Dressed as one of NOVA's controls — its surface, its border, its round shape —
+   so it does not look bolted on. What keeps it distinguishable from NOVA's own
+   buttons is the colour and the icon: MoodBoard's accent and a pushpin, never
+   NOVA's blue and a plus.
+   No hover games either. The chat pin starts at opacity 0 and is revealed by a
+   handler scoped to #chat, which is why this one was invisible inside NOVA; here
+   it is simply always there, because a panel used with a thumb has no hover. */
+.mb-nova-pin {
+    position: absolute; bottom: 10px; right: 10px; z-index: 40;
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; cursor: pointer; pointer-events: auto;
+    color: var(--mb-accent, #d4a574);
+    background: var(--nova-surface, #15202b);
+    border: 1px solid var(--nova-border, #38444d);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.55);
+    transition: background 0.15s, transform 0.1s;
+}
+.mb-nova-pin:hover { background: var(--nova-surface-hover, #192734); }
+.mb-nova-pin:active { transform: scale(0.9); }
+/* The viewer's row of round controls: same 48px circle as NOVA's, same glass
+   backdrop, ours tinted with the board's accent. */
+.mb-nova-viewer-btn {
+    pointer-events: auto; width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; cursor: pointer;
+    color: var(--mb-accent, #d4a574);
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: background 0.2s, transform 0.1s;
+}
+.mb-nova-viewer-btn:hover { background: rgba(255,255,255,0.26); }
+.mb-nova-viewer-btn:active { transform: scale(0.92); }
+
+/* ===== BACKGROUND-SEND INDICATOR: DOT AND OFF ===== */
+/* Only the spinner. Tapping it brings the job back up, where Стоп lives. */
+#mb-ai-mini.is-dot {
+    width: 42px; height: 42px; padding: 0; gap: 0;
+    border-radius: 50%; justify-content: center;
+    max-width: none;
+}
+#mb-ai-mini.is-dot .mb-mini-text,
+#mb-ai-mini.is-dot .mb-mini-stop { display: none; }
+/* Anchored to the top now — see placeAiMini — so the shadow falls downwards. */
+#mb-ai-mini { box-shadow: 0 8px 22px rgba(0,0,0,0.5); }
+
+.mb-mini-row { grid-template-columns: repeat(3, 1fr); }
+.mb-mini-opt {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 6px; border-radius: 8px; cursor: pointer;
+    font-size: 0.72em; text-align: center; line-height: 1.25;
+    background: var(--mb-chip); color: var(--mb-text);
+    border: 1px solid var(--mb-border); transition: 0.15s;
+}
+.mb-mini-opt i { font-size: 1.25em; opacity: 0.85; }
+.mb-mini-opt:hover { background: var(--mb-chip-strong); border-color: var(--mb-accent); }
+.mb-mini-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); background: var(--mb-chip-strong); }
+.mb-mini-opt.active i { opacity: 1; }

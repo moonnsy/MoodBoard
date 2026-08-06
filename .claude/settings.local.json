@@ -70,7 +70,17 @@
       "PowerShell($d='C:\\\\SillyTavern\\\\data\\\\default-user\\\\user\\\\files'; Copy-Item \"$d\\\\moodboard_data.json\" \"$env:TEMP\\\\mb_backup_real.json\" -Force; \"backed up: $\\(\\(Get-Item \"$env:TEMP\\\\mb_backup_real.json\"\\).Length\\) bytes\")",
       "PowerShell(Get-Content \"$env:TEMP\\\\mb_backup_real.json\" -Raw | Select-String -Pattern 'mb_img_[a-z0-9]+\\\\.\\(webp|jpg|png|gif\\)' -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)",
       "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --stat -- index.js style.css)",
-      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --numstat)"
+      "PowerShell($f='C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard\\\\index.js'; $tmp=\"$env:TEMP\\\\mbcheck.mjs\"; Copy-Item $f $tmp -Force; node --check $tmp; if \\($?\\) { \"SYNTAX OK\" }; Set-Location 'C:\\\\SillyTavern\\\\public\\\\scripts\\\\extensions\\\\third-party\\\\MoodBoard'; git diff --numstat)",
+      "Bash(ls \"C:/SillyTavern/public/scripts/extensions/third-party/\")",
+      "Bash(node --input-type=module --check)",
+      "Bash(npx --yes esbuild index.js --format=esm --outfile=/dev/null)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -m 4 http://127.0.0.1:8000/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -m 4 http://127.0.0.1:8888/)",
+      "Bash(cd \"C:/SillyTavern\" && ls data/default-user/user/files/ 2>/dev/null | grep -i mood; find data -iname \"*moodboard*\" -newermt \"-2 hours\" 2>/dev/null | head)",
+      "Bash(sed -n '/^async function paintInkOntoOutput/,/^}/p' index.js)",
+      "Bash(sed -n '/^async function paintInkOntoClone/,/^}/p' index.js)",
+      "Bash(sed -n '/^function boardAskText/,/^}/p' index.js)",
+      "Bash(sed -n '/^function buildBoardMessages/,/^}/p' index.js)"
     ]
   }
 }
