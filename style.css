@@ -2346,3 +2346,26 @@
 .mb-mini-opt:hover { background: var(--mb-chip-strong); border-color: var(--mb-accent); }
 .mb-mini-opt.active { border-color: var(--mb-accent); color: var(--mb-accent); background: var(--mb-chip-strong); }
 .mb-mini-opt.active i { opacity: 1; }
+
+/* ===== STYLE CHIP ON A REPLY =====
+   Says which style produced the take you are looking at, and re-asks for the
+   same picture in another one. Pushed to the left of the arrows so the arrows
+   stay where the thumb already expects them. */
+.mb-swipe-style {
+    margin-right: auto; order: -1;
+    display: inline-flex; align-items: center; gap: 6px;
+    max-width: 60%; padding: 5px 10px; border-radius: 999px;
+    font-family: inherit; font-size: 0.72em; line-height: 1;
+    cursor: pointer; transition: 0.15s;
+    color: var(--mb-text-muted);
+    background: var(--mb-chip);
+    border: 1px solid var(--mb-border);
+}
+.mb-swipe-style i { font-size: 1em; opacity: 0.85; }
+.mb-swipe-style span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-swipe-style:hover { color: var(--mb-accent); border-color: var(--mb-accent); background: var(--mb-chip-strong); }
+.mb-swipe-style:active { transform: scale(0.97); }
+.mb-swipe-bar.busy .mb-swipe-style { pointer-events: none; opacity: 0.35; }
+@media (max-width: 768px) {
+    .mb-swipe-style { padding: 8px 12px; font-size: 0.8em; }
+}

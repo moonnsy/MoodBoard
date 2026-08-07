@@ -1014,8 +1014,21 @@ function contentBounds() {
 
 // Give the browser two frames to actually paint the overlay before we start
 // blocking the main thread with html2canvas.
+// Waits for the browser to have actually drawn — but never waits on that alone.
+//
+// A hidden tab produces no animation frames at all, and "hidden" is exactly the
+// state a background send invites: fold the request away, switch to another app
+// to look something up, and the capture would sit on a requestAnimationFrame
+// that is never going to fire. It hung there for good. The timer is the floor:
+// whichever arrives first wins, and the frame is still preferred when there is
+// one to be had.
 function nextPaint() {
-    return new Promise(res => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(res, 0))));
+    return new Promise(res => {
+        let done = false;
+        const fin = () => { if (done) return; done = true; res(); };
+        setTimeout(fin, 120);
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(fin, 0)));
+    });
 }
 
 // How the character should shape its reaction. Each entry appends its own
@@ -1792,13 +1805,21 @@ async function captureBoardPayload(job) {
         jobCheck(job);
         const authorNote = authorNoteText(stCtx);
 
+        const partial = onlySelected ? picked.size : 0;
         const prompt = buildBoardMessages({
             stCtx, ctxSize, user, charName, charDesc, charPersona, notes, speakers, persona, lore, authorNote,
-            partial: onlySelected ? picked.size : 0, crop: !!crop,
+            partial, crop: !!crop,
         });
 
-        return { prompt, base64, shot, charName, bKey,
-                 partial: onlySelected ? picked.size : 0, crop: !!crop };
+        // Everything the closing "ask" turn is made of, kept so a reroll can be
+        // asked for in a different style without rebuilding the picture. Only the
+        // names of the speakers are needed, and keeping only those keeps the
+        // stored board small.
+        const ask = { user, partial, crop: !!crop,
+                      speakers: (speakers || []).map(c => ({ name: c.name })) };
+
+        return { prompt, base64, shot, charName, bKey, partial, crop: !!crop, ask,
+                 style: boards.global?.responseStyle || 'balanced' };
     } finally {
         if (clone?.parentNode) clone.parentNode.removeChild(clone);
         await useFullResImages(false);
@@ -1847,7 +1868,7 @@ async function analyzeBoard(opts = {}) {
         // second take is about the same board even after the board has moved on.
         const msgObj = { id: genId(), name: payload.charName, text: res, time: Date.now(),
                          shot: payload.shot, partial: payload.partial, crop: payload.crop,
-                         prompt: payload.prompt };
+                         prompt: payload.prompt, ask: payload.ask, style: payload.style };
         b.aiHistory.push(msgObj);
         save(true);   // an AI reply is expensive to regenerate — never leave it on a timer
 
@@ -1970,7 +1991,8 @@ function swipeIndex(m) {
 // exactly as they were saved, which keeps old boards from growing for nothing.
 function ensureSwipes(m) {
     if (!Array.isArray(m.swipes) || !m.swipes.length) {
-        m.swipes = [{ text: m.text, thread: Array.isArray(m.thread) ? m.thread : [] }];
+        m.swipes = [{ text: m.text, thread: Array.isArray(m.thread) ? m.thread : [],
+                      style: m.style }];
         m.swipe = 0;
     }
     m.swipe = swipeIndex(m);
@@ -1987,12 +2009,29 @@ function syncActiveSwipe(m) {
     m.thread = s.thread;
 }
 
+// Which style produced the take currently on screen.
+function swipeStyle(m) {
+    const sw = Array.isArray(m.swipes) ? m.swipes[swipeIndex(m)] : null;
+    return (sw && sw.style) || m.style || 'balanced';
+}
+function styleMeta(key) {
+    return RESPONSE_STYLES.find(s => s[0] === key) || RESPONSE_STYLES[0];
+}
 function swipeBarHtml(m) {
     const n = swipeCount(m), i = swipeIndex(m);
+    // The chip is only offered where a reroll can honour it — the closing turn of
+    // the request has to be rebuildable, which means `ask` was stored with the
+    // reply. Replies captured before that keep the arrows they always had.
+    const s = styleMeta(swipeStyle(m));
+    const chip = m.ask
+        ? `<button class="mb-swipe-style" title="Стиль этого варианта — нажмите, чтобы переспросить в другом">
+             <i class="fa-solid fa-${s[2]}"></i><span>${escHtml(s[1])}</span></button>`
+        : '';
     return `<div class="mb-swipe-bar">
         <i class="fa-solid fa-chevron-left mb-swipe-prev ${i === 0 ? 'disabled' : ''}" title="Предыдущий вариант"></i>
         <span class="mb-swipe-count">${i + 1}/${n}</span>
         <i class="fa-solid fa-chevron-right mb-swipe-next" title="${i + 1 < n ? 'Следующий вариант' : 'Сгенерировать новый вариант'}"></i>
+        ${chip}
     </div>`;
 }
 
@@ -2019,7 +2058,26 @@ async function stepSwipe(m, $bubble, dir) {
     paintSwipe(m, $bubble);
 }
 
-async function regenSwipe(m, $bubble) {
+// The same request with a different closing instruction. Only the last turn is
+// rebuilt: the system text, the chat turns and — above all — the picture stay
+// exactly as they were, which is the whole point. Asking the same crop for a
+// short reaction and then for a scene proposal costs one request each and never
+// re-photographs the board.
+function promptForStyle(m, styleKey) {
+    const base = m.prompt || rebuildBoardPrompt(m);
+    if (!styleKey || !m.ask || !Array.isArray(base)) return base;
+    const msgs = base.map(x => ({ ...x }));
+    const prev = boards.global?.responseStyle;
+    try {
+        if (boards.global) boards.global.responseStyle = styleKey;
+        msgs[msgs.length - 1] = { role: 'user', content: boardAskText(m.ask) };
+    } finally {
+        if (boards.global) boards.global.responseStyle = prev;
+    }
+    return msgs;
+}
+
+async function regenSwipe(m, $bubble, styleKey) {
     if (regenBusy.has(m.id)) return;
     regenBusy.add(m.id);
     const $bar = $bubble.find('.mb-swipe-bar').addClass('busy');
@@ -2028,17 +2086,17 @@ async function regenSwipe(m, $bubble) {
         // The stored snapshot is the picture the character saw the first time —
         // reusing it is what makes a swipe a reroll of the same board rather than
         // a fresh look at whatever the board became since.
-        const res = await fetchFromLLM(m.prompt || rebuildBoardPrompt(m), m.shot || null);
+        const res = await fetchFromLLM(promptForStyle(m, styleKey), m.shot || null);
         if (!res || !res.trim()) throw new Error('пустой ответ');
         ensureSwipes(m);
-        m.swipes.push({ text: res, thread: [] });
+        m.swipes.push({ text: res, thread: [], style: styleKey || swipeStyle(m) });
         m.swipe = m.swipes.length - 1;
         syncActiveSwipe(m);
         save(true);
         paintSwipe(m, $bubble);
     } catch (e) {
         console.error(LOG, e);
-        if (typeof toastr !== 'undefined') toastr.error('Не удалось сгенерировать: ' + e.message);
+        toastr?.error(errText(e), 'Вариант не сгенерировался', { timeOut: 12000, extendedTimeOut: 6000 });
         $bar.removeClass('busy');
         paintSwipe(m, $bubble);
     } finally {
@@ -2065,9 +2123,42 @@ function rebuildBoardPrompt(m) {
     });
 }
 
+// Pick a style for THIS reply and immediately ask again in it. Deliberately not
+// the settings dropdown: changing the global style there would also change what
+// the next fresh capture does, and the point here is a second opinion on the
+// picture already taken.
+function openSwipeStylePicker(m, $bubble, anchor) {
+    markHold();
+    const $p = $('#mb-style-picker').empty();
+    $p.append(`<div class="mb-brush-title">Переспросить в другом стиле</div>`);
+    $p.append(`<div class="mb-select-hint" style="margin:0 0 8px">Тот же кадр и тот же контекст — меняется только то, как персонажа просят ответить. Новый ответ встанет отдельным вариантом, прежние останутся.</div>`);
+    const cur = swipeStyle(m);
+    const $list = $('<div class="mb-style-list"></div>').appendTo($p);
+    RESPONSE_STYLES.forEach(([val, label, icon, , ru]) => {
+        $(`<div class="mb-style-opt ${val === cur ? 'active' : ''}">
+             <i class="fa-solid fa-${icon}"></i>
+             <span><b>${escHtml(label)}</b><em>${escHtml(ru)}</em></span></div>`)
+            .on('click', e => {
+                e.stopPropagation();
+                $p.removeClass('open');
+                if (val === 'custom' && !(boards.global?.customPrompt || '').trim()) {
+                    toastr?.info('Свой промпт пока пуст — задайте его в настройках');
+                    return;
+                }
+                regenSwipe(m, $bubble, val);
+            }).appendTo($list);
+    });
+    anchorPanel($p, anchor);
+}
+
 function bindSwipes($bubble, m) {
     $bubble.on('click', '.mb-swipe-prev', () => stepSwipe(m, $bubble, -1));
     $bubble.on('click', '.mb-swipe-next', () => stepSwipe(m, $bubble, 1));
+    $bubble.on('click', '.mb-swipe-style', function(e) {
+        e.stopPropagation();
+        if (holdJustFired()) return;
+        openSwipeStylePicker(m, $bubble, this);
+    });
     // Dragging the reply sideways works too, the way it does on a chat message.
     // Vertical movement wins, so this never fights scrolling the panel.
     let sx = 0, sy = 0, st = 0;
@@ -2095,9 +2186,14 @@ function openReplyBox($bubble, msgObj) {
     const $send = $('<button class="mb-settings-btn mb-reply-send">Отправить</button>');
     $box.append($ta).append($send);
     $ta.trigger('focus');
+    // Enter also calls this, and Enter can be pressed twice before the button has
+    // finished disabling itself.
+    let busy = false;
     const go = async () => {
+        if (busy) return;
         const text = ($ta.val() || '').trim();
         if (!text) return;
+        busy = true;
         $send.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
         try {
             await sendThreadReply(msgObj, text);
@@ -2105,8 +2201,12 @@ function openReplyBox($bubble, msgObj) {
             renderThread($bubble.find('.mb-thread'), msgObj);
         } catch (e) {
             console.error(LOG, e);
-            if (typeof toastr !== 'undefined') toastr.error('Не удалось отправить: ' + e.message);
+            // What the model actually said, not the wrapper around it. The text
+            // stays in the box, so pressing Отправить again just tries once more.
+            toastr?.error(errText(e), 'Ответ не ушёл', { timeOut: 12000, extendedTimeOut: 6000 });
             $send.prop('disabled', false).text('Отправить');
+        } finally {
+            busy = false;
         }
     };
     $send.on('click', go);
@@ -2129,7 +2229,12 @@ async function sendThreadReply(msgObj, userText) {
     // array we are about to append to.
     const sw = Array.isArray(msgObj.swipes) ? msgObj.swipes[swipeIndex(msgObj)] : null;
     if (sw) sw.thread = msgObj.thread;
-    msgObj.thread.push({ id: genId(), role: 'user', text: userText, time: Date.now() });
+    // Written down before the request so the prompt below can include it — and
+    // taken back out again if the request fails. Leaving it in was what made a
+    // second attempt show the same line twice: the first attempt had already
+    // committed it, and the retry appended it again.
+    const turn = { id: genId(), role: 'user', text: userText, time: Date.now() };
+    msgObj.thread.push(turn);
     save(true);
 
     const notes = (b.cards || []).filter(c => c.type === 'text' || c.type === 'quote')
@@ -2149,7 +2254,16 @@ async function sendThreadReply(msgObj, userText) {
     const note = (boards.global?.aiNote || '').trim();
     if (note) prompt += `\n\n[${user} adds a direct instruction — follow it: ${note}]`;
 
-    const res = await fetchFromLLM(prompt);
+    let res;
+    try {
+        res = await fetchFromLLM(prompt);
+        if (!res || !res.trim()) throw new Error('пустой ответ');
+    } catch (e) {
+        const i = msgObj.thread.indexOf(turn);
+        if (i >= 0) msgObj.thread.splice(i, 1);
+        save(true);
+        throw e;
+    }
     msgObj.thread.push({ id: genId(), role: 'char', text: res, time: Date.now() });
     save(true);
     return res;

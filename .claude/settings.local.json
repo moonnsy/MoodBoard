@@ -82,7 +82,10 @@
       "Bash(sed -n '/^function boardAskText/,/^}/p' index.js)",
       "Bash(sed -n '/^function buildBoardMessages/,/^}/p' index.js)",
       "Bash(sed -n '/^function wakeCloneCards/,/^}/p' index.js)",
-      "Bash(sed -n '/^function uncullCards/,/^}/p;/^async function awaitCardImages/,/^}/p' index.js)"
+      "Bash(sed -n '/^function uncullCards/,/^}/p;/^async function awaitCardImages/,/^}/p' index.js)",
+      "Bash(sed -n '/^function openReplyBox/,/^}/p' index.js)",
+      "Bash(sed -n '/^async function sendThreadReply/,/^}/p' index.js)",
+      "Bash(sed -n '/^function renderThread/,/^}/p' index.js)"
     ]
   }
 }
