@@ -2281,36 +2281,19 @@
     backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
 }
 
-/* A NOVA post image sits in a column as wide as the feed, so the pin needs a box
-   that hugs the picture rather than the column. Shrink-to-fit, and nothing else:
-   the image keeps its own display:block / max-width:100% / max-height sizing. */
-.mb-nova-wrap {
-    position: relative; display: inline-block;
-    max-width: 100%; margin: 0; padding: 0; line-height: 0;
-}
-/* Dressed as one of NOVA's controls — its surface, its border, its round shape —
-   so it does not look bolted on. What keeps it distinguishable from NOVA's own
-   buttons is the colour and the icon: MoodBoard's accent and a pushpin, never
-   NOVA's blue and a plus.
-   No hover games either. The chat pin starts at opacity 0 and is revealed by a
-   handler scoped to #chat, which is why this one was invisible inside NOVA; here
-   it is simply always there, because a panel used with a thumb has no hover. */
-.mb-nova-pin {
-    position: absolute; bottom: 10px; right: 10px; z-index: 40;
-    width: 34px; height: 34px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; cursor: pointer; pointer-events: auto;
-    color: var(--mb-accent, #d4a574);
-    background: var(--nova-surface, #15202b);
-    border: 1px solid var(--nova-border, #38444d);
-    box-shadow: 0 2px 10px rgba(0,0,0,0.55);
-    transition: background 0.15s, transform 0.1s;
-}
-.mb-nova-pin:hover { background: var(--nova-surface-hover, #192734); }
-.mb-nova-pin:active { transform: scale(0.9); }
-/* The viewer's row of round controls: same 48px circle as NOVA's, same glass
-   backdrop, ours tinted with the board's accent. */
+/* NOVA's viewer only. A thumbnail in the feed is not a picture you have looked
+   at yet, and the board is for pictures you chose — so the choice is offered
+   where the picture is actually large.
+   The viewer's row of round controls: same 48px circle as NOVA's, same glass
+   backdrop, ours tinted with the board's accent so it is never mistaken for one
+   of NOVA's own. No hover games: a panel used with a thumb has no hover. */
+/* The colour is forced. This button is injected into someone else's panel, whose
+   own `.nova-icon-btn` paints every control in that row white; which of the two
+   wins comes down to stylesheet load order, and that is not something worth
+   depending on for the one property that keeps this button recognisable as ours. */
+.nova-icon-btn.mb-nova-viewer-btn,
 .mb-nova-viewer-btn {
+    color: var(--mb-accent, #d4a574) !important;
     pointer-events: auto; width: 48px; height: 48px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     font-size: 18px; cursor: pointer;
@@ -2319,8 +2302,8 @@
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     transition: background 0.2s, transform 0.1s;
 }
-.mb-nova-viewer-btn:hover { background: rgba(255,255,255,0.26); }
-.mb-nova-viewer-btn:active { transform: scale(0.92); }
+.nova-icon-btn.mb-nova-viewer-btn:hover { background: rgba(255,255,255,0.26); }
+.nova-icon-btn.mb-nova-viewer-btn:active { transform: scale(0.92); }
 
 /* ===== BACKGROUND-SEND INDICATOR: DOT AND OFF ===== */
 /* Only the spinner. Tapping it brings the job back up, where Стоп lives. */

@@ -2709,7 +2709,7 @@ function buildUI() {
                 <span class="mb-settings-label" style="margin-top:20px">Кнопки «+» в чате</span>
                 ${switchRow('mb-tg-quote', 'Цитаты', 'Кнопка «+» рядом с выделенным текстом')}
                 ${switchRow('mb-tg-image', 'Картинки', 'Кнопка «+» в углу картинок в чате')}
-                ${switchRow('mb-tg-nova', 'Картинки NOVA', 'Кнопка «+» на картинках в ленте, галерее и просмотрщике NOVA')}
+                ${switchRow('mb-tg-nova', 'Картинки NOVA', 'Кнопка в полноэкранном просмотрщике NOVA')}
                 <div class="mb-select-hint">Выключенная кнопка просто не появляется — всё уже прикреплённое на досках остаётся на месте.</div>
                 <span class="mb-settings-label">Где держать кнопку на картинке</span>
                 <div class="mb-corner-row" id="mb-pin-pos">
@@ -4376,10 +4376,8 @@ function bindEvents() {
     });
     $('#mb-tg-nova').on('change', function() {
         setUiPref('showNovaBtn', this.checked);
-        if (this.checked) {
-            $('#nova-backdrop img').removeData('mb-nova');
-            injectNovaImageButtons();
-        } else $('.mb-nova-pin, .mb-nova-viewer-btn').remove();
+        if (this.checked) injectNovaImageButtons();
+        else $('.mb-nova-viewer-btn').remove();
     });
     $('#mb-tg-image').on('change', function() {
         setUiPref('showImageBtn', this.checked);
@@ -5014,50 +5012,21 @@ $(document).on('click', '.mb-chat-img-pin', async function(e) {
 // ===== NOVA =====
 // NOVA's feed lives in #nova-backdrop, entirely outside #chat, so the pin that
 // the chat scan hangs on every picture never reached a single one of them.
-// Three places are worth a button: a photo attached to a post, a cell of the
-// gallery, and the full-screen viewer — where the button joins NOVA's own row of
-// round controls instead of being pinned to a corner.
-// Its own class, and NOT the chat pin's. Sharing `mb-chat-img-pin` meant sharing
-// the chat pin's click handler as well: one tap ran both, and every picture
-// landed on the board twice.
 //
-// Styled as a NOVA control rather than a MoodBoard one — NOVA's dark surface and
-// border, its round shape — but carrying MoodBoard's accent and a pushpin rather
-// than NOVA's blue and a plus, so it reads as belonging to the panel while never
-// being mistaken for one of NOVA's own buttons.
-const NOVA_PIN_HTML = `<div class="mb-nova-pin" title="Прикрепить на MoodBoard"><i class="fa-solid fa-thumbtack"></i></div>`;
+// Only the full-screen viewer gets a button. Pinning from the feed or a gallery
+// cell means pinning a thumbnail you have not actually looked at — and the board
+// is a place for pictures you chose, so the choice is made where the picture is
+// large enough to make it. The button joins NOVA's own row of round controls.
+// Dressed as one of NOVA's own round controls, but carrying MoodBoard's accent
+// and a pushpin rather than NOVA's blue and a plus, so it belongs in that row
+// without being mistaken for something NOVA does.
 const NOVA_VIEWER_BTN = `<div class="nova-icon-btn mb-nova-viewer-btn" title="Прикрепить на MoodBoard">
     <i class="fa-solid fa-thumbtack"></i></div>`;
 
 function injectNovaImageButtons() {
     const root = document.getElementById('nova-backdrop');
     if (!root) return;
-    if (!uiPref('showNovaBtn')) { $('.mb-nova-pin, .mb-nova-viewer-btn').remove(); return; }
-
-    $(root).find('img.nova-attached-image, .nova-gallery-item img').each(function() {
-        const $img = $(this);
-        // Same order as the chat scan: the cheap flag before the measurement, or
-        // every re-render of the feed costs a forced layout per picture.
-        if ($img.data('mb-nova')) return;
-        const box = this.getBoundingClientRect();
-        if ((box.width && box.width < 56) || (box.height && box.height < 56)) return;
-        $img.data('mb-nova', true);
-
-        let $p = $img.parent();
-        // A gallery cell is exactly the size of its picture, so the button can go
-        // straight in. A post is not: the picture sits in a column as wide as the
-        // whole feed, and a button in *that* corner floats in empty space beside
-        // the photo. Those get a wrapper that hugs the image instead.
-        const tight = $p.hasClass('nova-gallery-item') || $p.hasClass('mb-nova-wrap');
-        if (!tight) {
-            const $wrap = $('<div class="mb-nova-wrap"></div>');
-            $img.wrap($wrap);
-            $p = $img.parent();
-        }
-        if ($p.css('position') === 'static') $p.css('position', 'relative');
-        if (!$p.find('.mb-nova-pin').length) $p.append(NOVA_PIN_HTML);
-    });
-
+    if (!uiPref('showNovaBtn')) { $('.mb-nova-viewer-btn').remove(); return; }
     // The viewer is rebuilt from scratch on every open and on every reroll of the
     // picture, so this is a presence check rather than a one-time injection.
     const acts = root.querySelector('#nova-image-viewer .nova-photo-viewer-actions');
@@ -5066,10 +5035,6 @@ function injectNovaImageButtons() {
     }
 }
 
-$(document).on('click', '.mb-nova-pin', async function(e) {
-    e.stopPropagation(); e.preventDefault();
-    await pinSrcToBoard($(this).parent().find('img').first().attr('src'));
-});
 $(document).on('click', '.mb-nova-viewer-btn', async function(e) {
     e.stopPropagation(); e.preventDefault();
     const img = document.querySelector('#nova-image-viewer .nova-photo-viewer-image-container img');
