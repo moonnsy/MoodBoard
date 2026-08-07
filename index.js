@@ -1636,8 +1636,11 @@ async function captureBoardPayload(job) {
         jobCheck(job);
         await nextPaint();
 
-        uncullCards(); // hidden cards must be visible or they won't be captured
-        await awaitCardImages();
+        // The board is woken lazily now. A chosen region already knows its own
+        // box, so only the cards inside it are ever brought back to full size;
+        // the other two modes still have to measure first, and measuring needs
+        // the cards laid out — but not their pictures decoded.
+        if (!areaCrop) uncullCards();
         jobCheck(job);
         // Deliberately NOT swapping in the full-size originals. This capture is
         // capped at 1400px across the whole board, so a card ends up a couple of
@@ -1667,6 +1670,15 @@ async function captureBoardPayload(job) {
         // reply must land on the board it was actually about.
         const bKey = boardKey();
 
+        // Everything below works on this set and nothing else. A card outside the
+        // frame contributes nothing to a cropped picture, so it is never woken,
+        // never decoded, and never handed to the rasterizer.
+        const keep = cardsInBox(box);
+        if (onlySelected) for (const id of [...keep]) if (!picked.has(id)) keep.delete(id);
+        uncullCards(keep);
+        await awaitCardImages(keep);
+        jobCheck(job);
+
         const inner = document.getElementById('mb-canvas-inner');
         clone = inner.cloneNode(true);
         clone.id = 'mb-canvas-clone';
@@ -1674,23 +1686,37 @@ async function captureBoardPayload(job) {
         clone.style.position = 'absolute';
         clone.style.top = '-99999px';
         clone.style.left = '-99999px';
+        // Pruned BEFORE waking the copy: wakeCloneCards puts a full-size src back
+        // on every picture it finds, and doing that to cards about to be thrown
+        // away decodes a board's worth of photographs for nothing.
+        clone.querySelectorAll('.mb-card').forEach(el => {
+            if (!keep.has(el.dataset.id)) el.remove();
+        });
         wakeCloneCards(clone);
         document.body.appendChild(clone);
-        if (onlySelected) {
-            clone.querySelectorAll('.mb-card').forEach(el => {
-                if (!picked.has(el.dataset.id)) el.remove();
-            });
-        }
         normalizeCloneColors(clone);
-
-        await paintInkOntoClone(clone);
 
         // Crop to the content and cap the long edge so the rasterized image stays
         // small. html2canvas takes x/y relative to the captured element's own
         // coordinate space, so these are plain board coordinates.
-        const scale = Math.min(1, 1400 / Math.max(box.w, box.h));
+        //
+        // The lower bound matters as much as the upper one now that a frame can be
+        // a small corner of the board: a 140-unit crop rendered at scale 1 is a
+        // 140px picture, and there is nothing in it for the model to read. Small
+        // frames are rendered above life size until the long edge is worth looking
+        // at.
+        const longEdge = Math.max(box.w, box.h);
+        const scale = Math.max(Math.min(2.5, 700 / longEdge), Math.min(1, 1400 / longEdge));
+
+        await paintInkOntoClone(clone, box, scale);
+
+        // The board's own colour, not transparency. html2canvas was told `null`,
+        // which leaves the background clear — and JPEG has no transparency, so
+        // every board ever sent arrived with its cards floating on solid black.
+        // The character was being asked about a picture nobody would recognise.
+        const boardBg = themeColor('--mb-board-bg', '#2a2a2a') || '#2a2a2a';
         let canvas = await h2c(clone, {
-            useCORS: true, allowTaint: true, backgroundColor: null,
+            useCORS: true, allowTaint: true, backgroundColor: boardBg,
             x: box.x, y: box.y, width: box.w, height: box.h,
             scale, logging: false, removeContainer: true,
         });
@@ -1727,7 +1753,13 @@ async function captureBoardPayload(job) {
         const base64 = canvas.toDataURL('image/jpeg', 0.8);
         // A small copy of exactly what was sent, stored with the reply so it is
         // always clear which part of the board the character was looking at.
-        const shot = await compressImageSrc(base64, 640, 0.85, true);
+        //
+        // Taken from the canvas that is already in hand. It used to be made by
+        // handing the finished JPEG back to an <img>, decoding all 1400px of it a
+        // second time, and drawing that into yet another canvas — three copies of
+        // the same picture alive at once, at the moment the phone had least room
+        // to spare.
+        const shot = canvasThumb(canvas, 640);
         canvas.width = canvas.height = 0; // release the bitmap immediately
         await nextPaint();
         jobCheck(job);
@@ -3404,14 +3436,25 @@ async function paintInkOntoOutput(octx, box, s, layer = 'below') {
 // face, an arrow across two pictures, anything marked on a photo simply vanished
 // behind it in the image the character was shown. The clone gets both layers, in
 // the same order the board has them.
-async function paintInkOntoClone(clone) {
+// `box` and `s` are the capture's own crop and scale. The ink layers used to be
+// allocated at the full 2000x2000 board resolution every single time — two of
+// them, 16 MB of live bitmap each — no matter whether the picture being taken was
+// the whole board or a postcard-sized corner of it. They are now exactly as big
+// as the frame, at exactly the resolution the frame will be rendered at.
+async function paintInkOntoClone(clone, box, s) {
     const cloneCanvas = clone.querySelector('#mb-draw-canvas');
     if (!cloneCanvas) return;
+    const w = Math.max(1, Math.round(box.w * s)), h = Math.max(1, Math.round(box.h * s));
     const setup = (cv) => {
-        cv.width = DRAW_RES; cv.height = DRAW_RES;
+        cv.width = w; cv.height = h;
+        // Laid over the frame rather than over the whole board, in board units so
+        // html2canvas crops it exactly as it crops the cards.
+        cv.style.cssText = `position:absolute;left:${box.x}px;top:${box.y}px;` +
+                           `width:${box.w}px;height:${box.h}px;pointer-events:none`;
         const cx = cv.getContext('2d');
-        cx.setTransform(DRAW_SCALE, 0, 0, DRAW_SCALE, 0, 0);
-        cx.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+        // Board coordinates in, frame pixels out.
+        cx.setTransform(s, 0, 0, s, -box.x * s, -box.y * s);
+        cx.clearRect(box.x, box.y, box.w, box.h);
         cx.lineCap = 'round'; cx.lineJoin = 'round';
         return cx;
     };
@@ -3440,12 +3483,11 @@ async function paintInkOntoClone(clone) {
     if (above.length) {
         const top = document.createElement('canvas');
         top.className = 'mb-draw-canvas';
-        // Above every card: card z-indexes run from 1 upwards and are not capped.
-        top.style.cssText = `position:absolute;left:0;top:0;width:${BOARD_SIZE}px;height:${BOARD_SIZE}px;` +
-                            `z-index:2000000;pointer-events:none`;
         clone.appendChild(top);
         const tctx = setup(top);
-        for (const s of above) paintStroke(tctx, s, p => p, 1);
+        // Above every card: card z-indexes run from 1 upwards and are not capped.
+        top.style.zIndex = '2000000';
+        for (const st of above) paintStroke(tctx, st, p => p, 1);
     }
     clone.querySelector('#mb-grid-layer')?.remove();
 }
@@ -4788,6 +4830,25 @@ async function makeCardImage(src) {
     const origW = await imgWidth(full);
     const [content, thumb] = await storeImages([full, small === full ? null : small]);
     return { content, thumb: thumb || null, origW };
+}
+
+// A small webp straight off a canvas, with no round trip through an <img>.
+// Synchronous on purpose: there is nothing to wait for when the pixels are
+// already here.
+function canvasThumb(canvas, maxDim = 640, quality = 0.85) {
+    const w = canvas.width, h = canvas.height;
+    if (!w || !h) return '';
+    const r = Math.min(1, maxDim / Math.max(w, h));
+    if (r >= 1) return canvas.toDataURL('image/webp', quality);
+    const small = document.createElement('canvas');
+    small.width = Math.max(1, Math.round(w * r));
+    small.height = Math.max(1, Math.round(h * r));
+    const cx = small.getContext('2d');
+    cx.imageSmoothingQuality = 'high';
+    cx.drawImage(canvas, 0, 0, small.width, small.height);
+    const out = small.toDataURL('image/webp', quality);
+    small.width = small.height = 0;
+    return out;
 }
 
 async function compressImageSrc(src, maxDim = 1000, quality = 0.8, force = false) {
@@ -10148,20 +10209,40 @@ function restoreCardPixels(el) {
         img.setAttribute('src', src);
     });
 }
-function uncullCards() {
+// `only` limits the work to a set of card ids. Waking a card hands its full-size
+// bitmap back to the browser, so doing it to a hundred cards when the picture
+// being taken covers three of them is the single most expensive thing the capture
+// used to ask a phone for.
+function uncullCards(only) {
     document.querySelectorAll('#mb-canvas-inner .mb-card').forEach(el => {
+        if (only && !only.has(el.dataset.id)) return;
         el.style.visibility = '';
         restoreCardPixels(el);
     });
 }
 // Anything that rasterizes the board needs the pictures actually decoded, not
-// merely assigned. Call after uncullCards().
-async function awaitCardImages() {
+// merely assigned. Call after uncullCards(), with the same `only`.
+async function awaitCardImages(only) {
     const waits = [];
-    document.querySelectorAll('#mb-canvas-inner .mb-card img').forEach(img => {
-        if (!img.complete && typeof img.decode === 'function') waits.push(img.decode().catch(() => {}));
+    document.querySelectorAll('#mb-canvas-inner .mb-card').forEach(el => {
+        if (only && !only.has(el.dataset.id)) return;
+        el.querySelectorAll('img').forEach(img => {
+            if (!img.complete && typeof img.decode === 'function') waits.push(img.decode().catch(() => {}));
+        });
     });
     await Promise.all(waits);
+}
+// Which cards a capture box actually touches. The pad covers shadows, tape and
+// frames that reach a little past the card's own rectangle.
+function cardsInBox(box, pad = 48) {
+    const ids = new Set();
+    document.querySelectorAll('#mb-canvas-inner .mb-card').forEach(el => {
+        const x = el.offsetLeft, y = el.offsetTop, w = el.offsetWidth, h = el.offsetHeight;
+        if (x - pad > box.x + box.w || x + w + pad < box.x ||
+            y - pad > box.y + box.h || y + h + pad < box.y) return;
+        ids.add(el.dataset.id);
+    });
+    return ids;
 }
 
 function cullCards() {

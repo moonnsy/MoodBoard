@@ -2149,11 +2149,20 @@
 .mb-rich-options div { display: flex; flex-direction: column; align-items: stretch; }
 /* Scrolling a menu must never drag the board or the panel underneath it — and it
    must be allowed to scroll at all, which is why the open list is lifted out of
-   .mb-canvas-area (touch-action: none) and into <body>. See portalMenu. */
+   .mb-canvas-area (touch-action: none) and into <body>. See portalMenu.
+
+   Being lifted out is also why the colour has to be stated here. The list used to
+   sit inside .mb-custom-select and inherit `color: var(--mb-text)` from it; as a
+   child of <body> it inherits Tavern's own text colour instead — which on a light
+   board theme like Linen or Ink & Paper is pale text on a pale card, i.e.
+   invisible. Nothing inherited from the old parent may be relied on here. */
 .mb-select-options {
     overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+    color: var(--mb-text);
+    font-family: 'Inter', 'Segoe UI', sans-serif;
 }
+.mb-select-options .mb-opt-title { color: var(--mb-text); }
 .mb-select-options div { touch-action: manipulation; }
 
 /* Sized like .mb-busy-overlay rather than with inset:0 — the containing block is

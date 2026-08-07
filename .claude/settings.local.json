@@ -80,7 +80,9 @@
       "Bash(sed -n '/^async function paintInkOntoOutput/,/^}/p' index.js)",
       "Bash(sed -n '/^async function paintInkOntoClone/,/^}/p' index.js)",
       "Bash(sed -n '/^function boardAskText/,/^}/p' index.js)",
-      "Bash(sed -n '/^function buildBoardMessages/,/^}/p' index.js)"
+      "Bash(sed -n '/^function buildBoardMessages/,/^}/p' index.js)",
+      "Bash(sed -n '/^function wakeCloneCards/,/^}/p' index.js)",
+      "Bash(sed -n '/^function uncullCards/,/^}/p;/^async function awaitCardImages/,/^}/p' index.js)"
     ]
   }
 }
