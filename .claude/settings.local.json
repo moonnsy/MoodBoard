@@ -85,7 +85,9 @@
       "Bash(sed -n '/^function uncullCards/,/^}/p;/^async function awaitCardImages/,/^}/p' index.js)",
       "Bash(sed -n '/^function openReplyBox/,/^}/p' index.js)",
       "Bash(sed -n '/^async function sendThreadReply/,/^}/p' index.js)",
-      "Bash(sed -n '/^function renderThread/,/^}/p' index.js)"
+      "Bash(sed -n '/^function renderThread/,/^}/p' index.js)",
+      "Bash(sed -n '/^function queueUpload/,/^}/p;/^function gestureActive/,/^}/p;/^async function runUpload/,/^}/p;/^async function flushSave/,/^}/p;/^function save\\(/,/^}/p' index.js)",
+      "Bash(sed -n '/^function setSyncState/,/^}/p' index.js)"
     ]
   }
 }

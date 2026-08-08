@@ -149,13 +149,15 @@ function stHeaders() {
     return h;
 }
 
-function setSyncState(state) {
-    $('#mb-sync').attr('data-state', state);
-    $('#mb-sync-text').text(
-        state === 'saving' ? 'Сохраняю на сервер…' :
-        state === 'error'  ? 'Сервер не отвечает — правки ждут в локальной копии' :
-                              'Доски сохраняются на сервере');
-}
+// Saving is plumbing, not news. There used to be a live indicator in the settings
+// panel, a toast when another device had touched the boards, and one for every
+// one-time migration — and for the overwhelming majority of setups, one phone
+// talking to one Tavern, none of it describes anything the user can act on. It
+// only invited the question "what sync? which other device?".
+//
+// What survives is failure: if a save does not reach the server, that is worth
+// one sentence, once.
+function setSyncState(state) { /* deliberately silent — see above */ }
 
 // Identifies the version of the file on disk without downloading it.
 function fileStamp(res) {
@@ -471,10 +473,17 @@ async function serverWriteMain(payload) {
 
 // Coalesced upload of the whole set. One board edit is small, but the file holds
 // the images too, so this waits for a pause rather than firing per gesture.
+// Every write is a file upload, and Tavern's own server prints a line for each
+// one ("Uploaded file: …moodboard_data.json"). That log is not ours to silence,
+// but its volume is: dragging a card around used to produce an upload every
+// couple of seconds, and every one of them was superseded by the next. Waiting
+// longer costs nothing — the local cache is already written, so nothing is at
+// risk in the gap — and turns a stream of lines into one per pause.
+const UPLOAD_IDLE_MS = 6000;
 function queueUpload(immediate) {
     clearTimeout(uploadTimer);
     if (immediate) { runUpload(); return; }
-    uploadTimer = setTimeout(runUpload, 1500);
+    uploadTimer = setTimeout(runUpload, UPLOAD_IDLE_MS);
 }
 // True while a finger is on the board. Serializing a big board mid-gesture is
 // exactly the hitch this is here to avoid, so the save waits for the hand to lift.
@@ -533,7 +542,6 @@ async function pullIfNewer(announce) {
         // board — on the main thread, in the middle of opening the board.
         for (const [k, v] of Object.entries(boards)) idbPut(k, v).catch(() => idbPut(k, structuredCloneSafe(v)).catch(() => {}));
         if ($('#mb-modal').is(':visible')) renderBoard();
-        if (announce && typeof toastr !== 'undefined') toastr.info('Доски обновлены с другого устройства');
         return true;
     } catch (e) { return false; }
 }
@@ -575,11 +583,11 @@ const idbGetAll = () => idbTx('readonly', s => {
 let saveTimer = null, saveWarned = false;
 const dirtyBoards = new Set();
 
-async function flushSave() {
+async function flushSave(immediate) {
     saveTimer = null;
     // Never in the middle of a gesture: on a board full of images this is heavy
     // enough to be felt under the finger.
-    if (gestureActive()) { saveTimer = setTimeout(flushSave, 400); return; }
+    if (gestureActive()) { saveTimer = setTimeout(() => flushSave(immediate), 400); return; }
     // 'global' carries stickers, pinned colours and the API profile, so it is
     // always a candidate alongside whichever board is on screen.
     dirtyBoards.add(boardKey()); dirtyBoards.add('global'); dirtyBoards.add('_tabs');
@@ -598,7 +606,10 @@ async function flushSave() {
             catch (e2) { console.warn(LOG, 'local cache write failed', e2); }
         }
     }
-    queueUpload();
+    // `save(true)` marks what is expensive to lose — an AI reply, a deletion, a
+    // cleared board — and those still go up at once. Only the routine stream (a
+    // card nudged across the board) waits for the pause.
+    queueUpload(immediate);
 }
 // IndexedDB rejects anything it can't structured-clone (DOM nodes, functions).
 // Boards are plain data, but a stray reference would silently kill every save,
@@ -613,9 +624,21 @@ function save(immediate) {
     // place that reliably knows those measurements may be stale.
     linkGeomDirty = true;
     clearTimeout(saveTimer);
-    if (immediate) { flushSave(); return; }
-    saveTimer = setTimeout(flushSave, 600);
+    if (immediate) { flushSave(true); return; }
+    saveTimer = setTimeout(() => flushSave(false), 600);
 }
+// A longer upload pause is only safe if leaving cannot strand the last edits.
+// Hiding the tab is the moment a phone is about to be put down or switched away
+// from, so whatever is still waiting goes now.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'hidden') return;
+    if (saveTimer) { clearTimeout(saveTimer); flushSave(true); }
+    else if (uploadTimer) queueUpload(true);
+});
+window.addEventListener('pagehide', () => {
+    if (saveTimer) { clearTimeout(saveTimer); flushSave(true); }
+    else if (uploadTimer) queueUpload(true);
+});
 
 // The board canvas is huge; toDataURL() on it blocks for hundreds of ms on phones.
 // Only do it once the user has stopped drawing.
@@ -678,9 +701,7 @@ async function load() {
             if (added.length) {
                 console.log(LOG, 'merged local-only boards to server:', added);
                 queueUpload(true);
-                if (typeof toastr !== 'undefined') toastr.info(`Добавлено на сервер досок: ${added.length}`);
             }
-            console.log(LOG, 'loaded', Object.keys(boards).length, 'boards from server (rev', serverRev + ')');
             return;
         }
     } catch (e) {
@@ -723,9 +744,6 @@ async function load() {
             }
             localStorage.removeItem('moodboard_v1');
             console.log(LOG, 'migrated', Object.keys(boards).length, 'boards to the server');
-            if (typeof toastr !== 'undefined') {
-                toastr.success('Доски перенесены на сервер — теперь они общие для телефона и компьютера.', '', { timeOut: 7000 });
-            }
         } catch (e) {
             console.error(LOG, 'migration upload failed', e);
         }
@@ -2665,8 +2683,7 @@ function buildUI() {
                 <button class="mb-settings-btn secondary" id="mb-export">Экспорт доски (JSON)</button>
                 <button class="mb-settings-btn secondary" id="mb-export-all"><i class="fa-solid fa-shield-halved"></i> Резервная копия всех досок</button>
                 <button class="mb-settings-btn secondary" id="mb-import">Импорт доски (JSON)</button>
-                <div class="mb-sync-line"><span class="mb-sync" id="mb-sync" data-state="ok"></span><span id="mb-sync-text">Доски сохраняются на сервере</span></div>
-                <div class="mb-select-hint">Доски лежат на сервере, поэтому одинаковы на телефоне и компьютере, а очистка данных браузера их не тронет. Резервная копия — на случай, если захочется откатиться или перенести всё в другую установку.</div>
+                <div class="mb-select-hint">Доски сохраняются сами, на сервер Таверны — поэтому одинаковы на телефоне и компьютере, а очистка данных браузера их не тронет. Резервная копия — на случай, если захочется откатиться или перенести всё в другую установку.</div>
                 <span class="mb-settings-label" style="margin-top:20px">Интеграция с ИИ</span>
                 <span class="mb-settings-label" style="margin-top:0">Профиль подключения</span>
                 <div class="mb-custom-select mb-select-wide" id="mb-api-dropdown">
@@ -4059,6 +4076,34 @@ function bindEvents() {
             $val.text(drawSize); paintDot();
             localStorage.setItem('mb_draw_size', drawSize);
         });
+
+        $p.append('<div class="mb-brush-title">Сглаживание</div>');
+        const $srow = $('<div class="mb-brush-size"></div>').appendTo($p);
+        const smoothNow = () => {
+            const v = parseInt(localStorage.getItem('mb_draw_smooth') ?? '40', 10);
+            return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 40;
+        };
+        const $ssl = $(`<input type="range" min="0" max="100" step="5" value="${smoothNow()}">`).appendTo($srow);
+        const $sval = $(`<b>${smoothNow()}</b>`).appendTo($srow);
+        $ssl.on('input', function() {
+            localStorage.setItem('mb_draw_smooth', this.value);
+            $sval.text(this.value);
+        });
+        $p.append('<div class="mb-select-hint" style="margin:2px 0 0">0 — линия идёт точно за пальцем, со всей его дрожью. Больше — ровнее, но чуть отстаёт. Действует на новые штрихи.</div>');
+
+        $p.append('<div class="mb-brush-title">Кончик</div>');
+        const $tip = $('<div class="mb-brush-layer"></div>').appendTo($p);
+        [[false, 'Ровный', 'minus'], [true, 'Острый', 'pen-nib']].forEach(([v, label, icon]) => {
+            $(`<div class="mb-brush-opt wide ${taperOn() === v ? 'active' : ''}">
+                 <i class="fa-solid fa-${icon}"></i><span>${label}</span></div>`)
+                .on('click', e => {
+                    e.stopPropagation();
+                    localStorage.setItem('mb_draw_taper', v ? '1' : '0');
+                    $tip.find('.mb-brush-opt').removeClass('active');
+                    $(e.currentTarget).addClass('active');
+                }).appendTo($tip);
+        });
+        $p.append('<div class="mb-select-hint" style="margin:2px 0 0">Острый — линия сходит на нет в начале и в конце и живёт вместе с рукой: где вели медленно, там толще, где быстро — тоньше. Со стилусом берётся настоящий нажим.</div>');
 
         $p.append('<div class="mb-brush-title">Куда рисовать</div>');
         const $layer = $('<div class="mb-brush-layer"></div>').appendTo($p);
@@ -6693,14 +6738,24 @@ function clampCardW(w) { return Math.round(Math.max(CARD_W_MIN, Math.min(CARD_W_
 // gained nothing from the original — you cannot see the half that is missing —
 // but it cost the same memory as one you were looking at, and panning across a
 // board would light up every photo it dragged past.
-function cardCentreOnScreen(card, el) {
+// How much of the card is actually on screen, in screen pixels.
+//
+// This used to ask whether the card's CENTRE was in view, which gets the
+// zoomed-in case exactly backwards: lean in on the top of a tall photo and its
+// middle slides off the bottom of the screen, so the one picture filling your
+// whole display was ruled ineligible and dropped back to the preview — blurry
+// precisely when you were looking closest. Area answers the question that was
+// meant all along: how much of this card am I actually looking at.
+function cardVisibleArea(card, el) {
     const area = document.getElementById('mb-canvas-area');
-    if (!area) return false;
+    if (!area) return 0;
     const w = el?.offsetWidth || card.w || 220;
     const h = el?.offsetHeight || w;
-    const cx = (card.x + w / 2) * zoom + panX;
-    const cy = (card.y + h / 2) * zoom + panY;
-    return cx >= 0 && cx <= area.clientWidth && cy >= 0 && cy <= area.clientHeight;
+    const x0 = card.x * zoom + panX, y0 = card.y * zoom + panY;
+    const x1 = x0 + w * zoom, y1 = y0 + h * zoom;
+    const ix = Math.min(x1, area.clientWidth) - Math.max(x0, 0);
+    const iy = Math.min(y1, area.clientHeight) - Math.max(y0, 0);
+    return (ix > 0 && iy > 0) ? ix * iy : 0;
 }
 
 // The copy a card shows unless something promotes it — always the preview.
@@ -6724,7 +6779,9 @@ function wantsSharp(card, el) {
     // The margin is slack, not precision: it keeps a card parked exactly on the
     // boundary from swapping its source back and forth on every nudge of the zoom.
     if ((card.w || 220) * zoom * dpr <= IMG_THUMB_DIM * 1.15) return false;
-    return cardCentreOnScreen(card, el);
+    // A sliver at the very edge of the screen is not what you are looking at, and
+    // letting one claim the budget would push out the picture that is.
+    return cardVisibleArea(card, el) > 8000;
 }
 
 // How many originals may be decoded at once, whatever the board holds.
@@ -6747,7 +6804,6 @@ function refreshImgTiers() {
     const area = document.getElementById('mb-canvas-area');
     if (!area) return;
     const byId = new Map((getBoard().cards || []).map(c => [c.id, c]));
-    const midX = area.clientWidth / 2, midY = area.clientHeight / 2;
     const plan = new Map();      // img -> the src it should end up with
     const eligible = [];
     for (const img of document.querySelectorAll('#mb-canvas-inner .mb-card > .mb-card-content-wrap > img')) {
@@ -6756,11 +6812,12 @@ function refreshImgTiers() {
         if (!card || !card.content) continue;
         plan.set(img, bestSrcFor(card));               // preview by default
         if (!wantsSharp(card, el)) continue;
-        const w = el.offsetWidth || card.w || 220, h = el.offsetHeight || w;
-        const cx = (card.x + w / 2) * zoom + panX, cy = (card.y + h / 2) * zoom + panY;
-        eligible.push({ img, card, dist: Math.hypot(cx - midX, cy - midY) });
+        eligible.push({ img, card, seen: cardVisibleArea(card, el) });
     }
-    eligible.sort((a, b) => a.dist - b.dist);
+    // Most of the screen wins. Ranking by distance to the centre meant that
+    // zooming into a corner of a photo handed the budget to a neighbour whose
+    // middle happened to sit closer to the middle of the display.
+    eligible.sort((a, b) => b.seen - a.seen);
     for (const e of eligible.slice(0, sharpBudget())) plan.set(e.img, e.card.content);
 
     for (const [img, want] of plan) {
@@ -9669,6 +9726,72 @@ const BRUSHES = [
     ['ribbon',     'Лента',       'ribbon'],
 ];
 
+// ===== TAPERED STROKES =====
+// A line of one thickness end to end reads as a machine drew it. A real nib
+// leaves almost nothing where it lands and where it lifts, swells where the hand
+// slowed to think, and thins where it hurried. That is what this reconstructs:
+// from a stylus's own pressure when there is any, and otherwise from the spacing
+// of the samples, which — since they arrive at a steady rate — is speed.
+const TAPER_ENDS = 0.16;   // fraction of the stroke each tip fades over
+const TAPER_REF = 15;      // board units per sample that counts as "quick"
+
+function taperWidths(s, baseW) {
+    const n = s.p.length / 2;
+    const ws = new Array(n);
+    const usePressure = Array.isArray(s.pr) && s.pr.length === n;
+
+    // Raw per-point factor, before the ends are taken into account.
+    const raw = new Array(n);
+    for (let i = 0; i < n; i++) {
+        if (usePressure) {
+            raw[i] = 0.35 + Math.max(0, Math.min(1, s.pr[i])) * 0.9;
+        } else {
+            const j = Math.max(1, i);
+            const dx = s.p[j*2] - s.p[(j-1)*2], dy = s.p[j*2+1] - s.p[(j-1)*2+1];
+            const speed = Math.min(1, Math.hypot(dx, dy) / TAPER_REF);
+            raw[i] = 1 - speed * 0.5;             // quick hand, thinner line
+        }
+    }
+    // Averaged over a small window, or the width jitters point to point and the
+    // edge of the stroke comes out serrated.
+    for (let i = 0; i < n; i++) {
+        let sum = 0, cnt = 0;
+        for (let k = i - 2; k <= i + 2; k++) {
+            if (k < 0 || k >= n) continue;
+            sum += raw[k]; cnt++;
+        }
+        const smooth = sum / cnt;
+        // Both tips run out to almost nothing.
+        const t = n > 1 ? i / (n - 1) : 0.5;
+        const ends = Math.min(1, Math.min(t, 1 - t) / TAPER_ENDS);
+        ws[i] = Math.max(0.35, baseW * smooth * Math.max(0.06, ends));
+    }
+    return ws;
+}
+// Walks up one side of the centreline and back down the other, so the whole
+// stroke is a single filled shape — one path, the same cost as stroking it.
+function traceTaper(ctx, s, project, ws) {
+    const n = s.p.length / 2;
+    if (n < 2) return false;
+    const P = i => project({ x: s.p[i*2], y: s.p[i*2+1] });
+    const left = [], right = [];
+    for (let i = 0; i < n; i++) {
+        const a = P(Math.max(0, i - 1)), b = P(Math.min(n - 1, i + 1)), p = P(i);
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        dx /= len; dy /= len;
+        const h = ws[i] / 2;
+        left.push({ x: p.x - dy * h, y: p.y + dx * h });
+        right.push({ x: p.x + dy * h, y: p.y - dx * h });
+    }
+    ctx.beginPath();
+    ctx.moveTo(left[0].x, left[0].y);
+    for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+    ctx.closePath();
+    return true;
+}
+
 function applyBrush(ctx, br, w, color) {
     ctx.setLineDash([]);
     ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
@@ -9721,6 +9844,12 @@ function paintStroke(ctx, s, project, scaleForWidth) {
         const b = project({ x: s.p[(n-1)*2], y: s.p[(n-1)*2+1] });
         traceShape(ctx, s.s || 'rect', a, b);
         ctx.stroke();
+    } else if (s.t === 'draw' && s.tp && n >= 2) {
+        // A tapered line is a shape, not a line: filled rather than stroked, so
+        // the width can change along it. The brush's own alpha and glow still
+        // apply — what it gives up is lineWidth, which the outline now carries.
+        const base = ctx.lineWidth;
+        if (traceTaper(ctx, s, project, taperWidths(s, base))) ctx.fill();
     } else {
         tracePath(ctx, s.p, project);
         ctx.stroke();
@@ -9778,7 +9907,13 @@ function renderInk() {
         paintStroke(s.a ? topCtx : liveCtx, s, project, zoom);
     }
     if (isDrawing && strokePts.length >= 2) {
+        // The preview is shaped exactly like the committed stroke will be, or the
+        // line changes under your hand the moment you lift the finger.
         const live = { t: tool, c: drawColor, w: drawSize, s: shapeKind, br: brushKind, p: strokePts };
+        if (tool === 'draw' && taperOn()) {
+            live.tp = 1;
+            if (pressVaried && strokePress.length === strokePts.length / 2) live.pr = strokePress;
+        }
         paintStroke(drawAbove ? topCtx : liveCtx, live, project, zoom);
     }
     // The one being drawn wins the screen; otherwise the one already chosen is
@@ -9822,31 +9957,69 @@ function toScreen(p) { return { x: p.x * zoom + panX, y: p.y * zoom + panY }; }
 // space, so the threshold behaves the same at every zoom level) and easing each
 // new point toward the last. Both together are what make the line come out clean
 // instead of tracking every wobble of a finger.
-function pushPoint(p) {
+// How hard the line is pulled toward the raw finger position. 1 takes every
+// sample as it comes — truest to the hand, and every tremor with it; lower
+// values trail behind and iron the wobble out. 0.7 was the fixed value this
+// always used, which is what 40 on the slider reproduces.
+function smoothAlpha() {
+    const v = parseInt(localStorage.getItem('mb_draw_smooth') ?? '40', 10);
+    const pct = Math.max(0, Math.min(100, Number.isFinite(v) ? v : 40));
+    return 1 - (pct / 100) * 0.75;
+}
+function taperOn() { return localStorage.getItem('mb_draw_taper') === '1'; }
+
+// Pressure, when the device has any to report. A finger gives the same number
+// every time; a stylus does not, and that difference is what decides whether the
+// recorded pressures are worth keeping or the line should be shaped from its own
+// speed instead.
+let strokePress = [], pressVaried = false, pressFirst = -1;
+function pushPoint(p, pressure) {
+    if (typeof pressure === 'number' && pressure > 0) {
+        if (pressFirst < 0) pressFirst = pressure;
+        else if (Math.abs(pressure - pressFirst) > 0.06) pressVaried = true;
+    }
     const n = strokePts.length;
-    if (n === 0) { strokePts.push(p.x, p.y); return true; }
+    if (n === 0) {
+        strokePts.push(p.x, p.y);
+        strokePress.push(pressure || 0.5);
+        return true;
+    }
     const lx = strokePts[n-2], ly = strokePts[n-1];
     const dx = (p.x - lx) * zoom, dy = (p.y - ly) * zoom;
     if (dx*dx + dy*dy < 4) return false;          // < 2 screen px: ignore
-    // Ease toward the raw sample rather than taking it outright. 0.7 kills finger
-    // jitter while staying close enough to the touch that it doesn't feel laggy.
-    const a = 0.7;
+    const a = smoothAlpha();
     strokePts.push(lx + (p.x - lx) * a, ly + (p.y - ly) * a);
+    strokePress.push(pressure || 0.5);
     return true;
 }
 
+function resetStrokeSamples() {
+    strokePts = [];
+    strokePress = [];
+    pressVaried = false;
+    pressFirst = -1;
+}
 function cancelStroke() {
     isDrawing = false;
-    strokePts = [];
+    resetStrokeSamples();
     innerRect = null;
     renderInk();
 }
 function commitStroke() {
     isDrawing = false;
     innerRect = null;
-    if (strokePts.length < 2) { strokePts = []; renderInk(); return; }
+    if (strokePts.length < 2) { resetStrokeSamples(); renderInk(); return; }
     const pts = strokePts.map(v => Math.round(v * 10) / 10); // 0.1px is plenty, keeps JSON small
     const s = { t: tool, c: drawColor, w: drawSize, p: pts, b: strokeBounds(pts) };
+    if (tool === 'draw' && taperOn()) {
+        s.tp = 1;
+        // Only worth storing when the device actually varies it — a finger reports
+        // one number for the whole stroke, and a column of identical values is
+        // weight in every save for nothing. Without it the shape comes from speed.
+        if (pressVaried && strokePress.length === pts.length / 2) {
+            s.pr = strokePress.map(v => Math.round(v * 100) / 100);
+        }
+    }
     if (tool === 'draw' && brushKind !== 'pen') s.br = brushKind;
     if (drawAbove) s.a = 1;
     if (tool === 'shape') s.s = shapeKind;
@@ -9869,7 +10042,7 @@ function commitStroke() {
         drawCtx.globalCompositeOperation = 'source-over';
         saveDrawing();
     }
-    strokePts = [];
+    resetStrokeSamples();
     renderInk();
     save();
 }
@@ -9952,8 +10125,8 @@ function onPointerDown(e) {
     if (isDraw && onBoard) {
         isDrawing = true;
         innerRect = document.getElementById('mb-canvas-inner').getBoundingClientRect();
-        strokePts = [];
-        pushPoint(canvasPos(e));
+        resetStrokeSamples();
+        pushPoint(canvasPos(e), e.pressure);
         document.getElementById('mb-canvas-area').setPointerCapture?.(e.pointerId);
         return;
     }
@@ -10072,7 +10245,7 @@ function onPointerMove(e) {
             // replaying them keeps fast strokes smooth instead of leaving gaps.
             const raw = (typeof e.getCoalescedEvents === 'function') ? e.getCoalescedEvents() : null;
             const evs = (raw && raw.length) ? raw : [e];
-            for (const ev of evs) pushPoint(canvasPos(ev));
+            for (const ev of evs) pushPoint(canvasPos(ev), ev.pressure);
         } else {
             // arrow / shape: keep the anchor, replace the moving endpoint
             const pos = canvasPos(e);

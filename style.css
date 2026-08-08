@@ -1074,16 +1074,6 @@
 /* Send button sits beside the reply box. */
 .mb-reply-send { margin-top: 6px; }
 
-/* ===== SERVER SYNC INDICATOR ===== */
-.mb-sync-line { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.78em; color: var(--mb-text-muted); }
-.mb-sync {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    background: #4ade80; transition: background 0.25s, opacity 0.25s; opacity: 0.5;
-}
-.mb-sync[data-state="saving"] { background: var(--mb-accent); opacity: 1; animation: mb-sync-pulse 0.9s ease-in-out infinite; }
-.mb-sync[data-state="error"] { background: #ef4444; opacity: 1; }
-@keyframes mb-sync-pulse { 50% { opacity: 0.25; } }
-
 /* ===== SELECTION MODE ===== */
 .mb-select-bar {
     display: none; order: 3; align-items: center; justify-content: space-between;
