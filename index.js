@@ -508,13 +508,11 @@ async function runUpload() {
         setSyncState('ok');
         refreshStamp();
     } catch (e) {
+        // No toast. "Local" and "server" are the same files on the same machine
+        // from where the user sits, so a failed write is not a distinction they
+        // can act on — and the next save retries anyway. The console keeps it.
         console.error(LOG, 'server save failed', e);
         serverOk = false;
-        setSyncState('error');
-        if (!saveWarned && typeof toastr !== 'undefined') {
-            saveWarned = true;
-            toastr.error('Не удалось сохранить доски на сервер. Локальная копия цела — проверьте связь.', '', { timeOut: 8000 });
-        }
     } finally {
         uploading = false;
         if (uploadAgain) { uploadAgain = false; queueUpload(); }
@@ -580,7 +578,7 @@ const idbGetAll = () => idbTx('readonly', s => {
     return { get result() { return keys.result.map((k, i) => [k, vals.result[i]]); } };
 });
 
-let saveTimer = null, saveWarned = false;
+let saveTimer = null;
 const dirtyBoards = new Set();
 
 async function flushSave(immediate) {
@@ -705,11 +703,10 @@ async function load() {
             return;
         }
     } catch (e) {
+        // Same reasoning as the failed write above: the fallback is silent. The
+        // boards open either way, and edits go out as soon as they can.
         console.warn(LOG, 'server unreachable, falling back to local cache', e);
         serverOk = false;
-        if (typeof toastr !== 'undefined') {
-            toastr.warning('Сервер недоступен — открыта локальная копия досок. Правки уйдут на сервер, когда связь вернётся.', '', { timeOut: 7000 });
-        }
     }
 
     // 2. Local cache from a previous session on this device.
@@ -2683,7 +2680,7 @@ function buildUI() {
                 <button class="mb-settings-btn secondary" id="mb-export">Экспорт доски (JSON)</button>
                 <button class="mb-settings-btn secondary" id="mb-export-all"><i class="fa-solid fa-shield-halved"></i> Резервная копия всех досок</button>
                 <button class="mb-settings-btn secondary" id="mb-import">Импорт доски (JSON)</button>
-                <div class="mb-select-hint">Доски сохраняются сами, на сервер Таверны — поэтому одинаковы на телефоне и компьютере, а очистка данных браузера их не тронет. Резервная копия — на случай, если захочется откатиться или перенести всё в другую установку.</div>
+                <div class="mb-select-hint">Резервная копия — на случай, если захочется откатиться или перенести всё в другую установку.</div>
                 <span class="mb-settings-label" style="margin-top:20px">Интеграция с ИИ</span>
                 <span class="mb-settings-label" style="margin-top:0">Профиль подключения</span>
                 <div class="mb-custom-select mb-select-wide" id="mb-api-dropdown">
@@ -2705,14 +2702,11 @@ function buildUI() {
                     <input type="number" id="mb-ctx-num" class="mb-ctx-num" min="0" max="${CTX_MAX}" step="1" value="10">
                 </div>
                 <input type="range" id="mb-ctx-slider" min="0" max="${CTX_MAX}" value="10" style="width:100%;margin-bottom:4px">
-                <div class="mb-select-hint">Сколько последних сообщений чата уходит вместе с доской. Можно вписать точное число в окошко — до ${CTX_MAX}. Чем больше, тем дороже запрос и тем выше шанс упереться в лимит контекста модели.</div>
                 <span class="mb-settings-label" style="margin-top:18px">Что отправлять вместе с доской</span>
                 ${switchRow('mb-tg-charcard', 'Карту персонажа', 'Описание и характер того, кто отвечает')}
                 ${switchRow('mb-tg-persona', 'Карту персоны', 'Описание вас — то, что стоит в «Persona»')}
                 ${switchRow('mb-tg-lore', 'Лорбуки', 'Записи мира, сработавшие по ключевым словам')}
                 ${switchRow('mb-tg-note', 'Авторские заметки', 'Заметка этого чата, персонажа или общая')}
-                <div class="mb-select-hint">Авторская заметка — то, что вписано в «Author’s Note»: как обстоят дела сейчас. Берётся заметка этого чата, к ней добавляется привязанная к персонажу, а если обеих нет — общая. Не длиннее ${NOTE_MAX} символов.</div>
-                <div class="mb-select-hint">Лорбуки подбираются так же, как в обычном ответе персонажа: по ключевым словам из заметок на доске и из последних сообщений. Значит, НПС, который живёт в лорбуке, приедет вместе с доской, если он на ней упомянут — а записи, помеченные как постоянные (синие), приезжают всегда. Отправляется не больше ${LORE_MAX} символов, чтобы запрос не раздулся.</div>
                 ${switchRow('mb-tg-bgsend', 'Отправлять в фоне', 'Сразу сворачивать окно ожидания')}
                 <div class="mb-select-hint">Доска собирается и уходит сама, пока вы пишете пост. Когда ответ придёт, всплывёт уведомление; нажмите на него, чтобы прочитать. Даже с выключенной настройкой окно ожидания можно свернуть кнопкой «Свернуть в фон».</div>
                 <span class="mb-settings-label">Значок фоновой отправки</span>
@@ -2721,7 +2715,6 @@ function buildUI() {
                     <div class="mb-mini-opt" data-mini="dot"><i class="fa-solid fa-circle-notch"></i>Кружком</div>
                     <div class="mb-mini-opt" data-mini="off"><i class="fa-solid fa-eye-slash"></i>Не показывать</div>
                 </div>
-                <div class="mb-select-hint">Висит сверху, под панелью Таверны, чтобы не закрывать ни поле ввода, ни конец поста. Кружок — только вертушка, нажатие разворачивает обратно. «Не показывать» ничего не отменяет: доска всё равно уйдёт, а об ответе придёт уведомление.</div>
                 <button class="mb-settings-btn secondary" id="mb-btn-test-api"><i class="fa-solid fa-plug"></i> Проверить подключение</button>
                 <span class="mb-settings-label" style="margin-top:20px">Кнопки «+» в чате</span>
                 ${switchRow('mb-tg-quote', 'Цитаты', 'Кнопка «+» рядом с выделенным текстом')}
@@ -2735,13 +2728,10 @@ function buildUI() {
                     <div class="mb-corner-opt" data-pos="bl"><span class="mb-corner-box"><i></i></span>Снизу слева</div>
                     <div class="mb-corner-opt" data-pos="br"><span class="mb-corner-box"><i></i></span>Снизу справа</div>
                 </div>
-                <div class="mb-select-hint">Свои кнопки — увеличить, перерисовать, удалить — SillyTavern держит вдоль верхнего края картинки, и на узком экране наша кнопка попадала прямо под корзину. Поэтому по умолчанию она внизу справа; если у вашей темы занят другой угол, выберите свободный.</div>
 
                 <span class="mb-settings-label" style="margin-top:20px">Картинки</span>
                 ${switchRow('mb-tg-zoomq', 'Чёткость при увеличении', 'Подставлять оригинал, когда картинка крупная на экране')}
-                <div class="mb-select-hint">Обычно доска показывает лёгкие превью. Когда картинка занимает на экране больше, чем превью может дать, вместо него подставляется оригинал — и убирается обратно, как только она уезжает из кадра. Одновременно так показывается всего одна картинка на телефоне (две-три на компьютере) — та, что ближе к середине экрана: именно отсутствие этого предела и валило вкладку на большой доске. Выключите совсем, если чёткость при увеличении не нужна.</div>
                 <button class="mb-settings-btn secondary" id="mb-shrink-images"><i class="fa-solid fa-compress"></i> Уменьшить крупные картинки</button>
-                <div class="mb-select-hint">Разово пережимает всё, что крупнее ${IMG_FULL_DIM} px, до ${IMG_FULL_DIM} px. Картинки, добавленные раньше, сохранялись до 2400 px — а распакованная 2400-пиксельная фотография занимает вдвое больше памяти, чем нужно доске. На вид не изменится, отменить нельзя.</div>
 
                 <span class="mb-settings-label" style="margin-top:20px">Свои рамки</span>
                 <button class="mb-settings-btn secondary" id="mb-add-frame"><i class="fa-solid fa-plus"></i> Загрузить рамку (PNG)</button>
@@ -4089,7 +4079,6 @@ function bindEvents() {
             localStorage.setItem('mb_draw_smooth', this.value);
             $sval.text(this.value);
         });
-        $p.append('<div class="mb-select-hint" style="margin:2px 0 0">0 — линия идёт точно за пальцем, со всей его дрожью. Больше — ровнее, но чуть отстаёт. Действует на новые штрихи.</div>');
 
         $p.append('<div class="mb-brush-title">Кончик</div>');
         const $tip = $('<div class="mb-brush-layer"></div>').appendTo($p);
@@ -4103,7 +4092,6 @@ function bindEvents() {
                     $(e.currentTarget).addClass('active');
                 }).appendTo($tip);
         });
-        $p.append('<div class="mb-select-hint" style="margin:2px 0 0">Острый — линия сходит на нет в начале и в конце и живёт вместе с рукой: где вели медленно, там толще, где быстро — тоньше. Со стилусом берётся настоящий нажим.</div>');
 
         $p.append('<div class="mb-brush-title">Куда рисовать</div>');
         const $layer = $('<div class="mb-brush-layer"></div>').appendTo($p);
