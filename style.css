@@ -2342,3 +2342,48 @@
 @media (max-width: 768px) {
     .mb-swipe-style { padding: 8px 12px; font-size: 0.8em; }
 }
+
+/* ===== DOCKED MODE (desktop only) =====
+   The board stands in a column on the right and Tavern keeps the rest. Every
+   rule here is gated on .mb-docked, which is only ever put on <body> above
+   768px — a phone never sees any of it. */
+#mb-modal.mb-docked {
+    left: auto !important; right: 0 !important;
+    width: var(--mb-dock-w, 42vw) !important;
+    background-color: var(--mb-board-bg, #2a2a2a) !important;
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    border-left: 1px solid var(--mb-border);
+    box-shadow: -12px 0 32px rgba(0,0,0,0.35);
+}
+/* Tavern's chat is absolutely positioned with left:0/right:0 and auto side
+   margins — giving it a `right` is all it takes to re-centre it in what is left.
+   The max-width is the guard for a wide dock over an even wider chat setting. */
+body.mb-docked #sheld {
+    right: var(--mb-dock-w, 42vw) !important;
+    max-width: calc(100vw - var(--mb-dock-w, 42vw) - 12px) !important;
+}
+/* The top bar is in normal flow, so it follows the content box. */
+body.mb-docked { padding-right: var(--mb-dock-w, 42vw); }
+
+/* The grip: a hair of a strip on the dock's left edge, and nothing at all when
+   the board is full-screen. */
+#mb-dock-grip { display: none; }
+#mb-modal.mb-docked #mb-dock-grip {
+    display: block; position: absolute; z-index: 40;
+    left: 0; top: 0; width: 10px; height: 100%;
+    cursor: ew-resize; touch-action: none;
+    background: transparent; transition: background 0.15s;
+}
+#mb-modal.mb-docked #mb-dock-grip:hover { background: var(--mb-accent); opacity: 0.5; }
+
+/* Waiting for the model covers the board, not the chat — otherwise docking has
+   given nothing back. */
+body.mb-docked #mb-ai-overlay {
+    left: auto; right: 0; width: var(--mb-dock-w, 42vw);
+}
+/* A column is narrow: the side panels take all of it rather than leaving a
+   useless sliver of board beside them. */
+#mb-modal.mb-docked .mb-settings-panel,
+#mb-modal.mb-docked #mb-ai-panel,
+#mb-modal.mb-docked #mb-custom-color-panel,
+#mb-modal.mb-docked #mb-frame-panel { width: 100% !important; }

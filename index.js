@@ -1151,6 +1151,7 @@ function syncSettingsUI() {
     $('#mb-tg-image').prop('checked', uiPref('showImageBtn'));
     $('#mb-tg-nova').prop('checked', uiPref('showNovaBtn'));
     $('#mb-tg-bgsend').prop('checked', bgSendPref());
+    refreshDockUI();
     syncMiniStyleUI();
     $('#mb-tg-zoomq').prop('checked', uiPref('zoomQuality'));
     $('#mb-tg-charcard').prop('checked', sendPref('sendCharCard'));
@@ -2541,10 +2542,47 @@ function attachWand() {
     tryAttach();
 }
 
+// ===== DOCKED MODE (desktop) =====
+// Instead of covering the screen, the board can stand in a column on the right
+// with the chat still usable beside it.
+//
+// Tavern lays its chat out as one absolutely positioned #sheld with `left: 0;
+// right: 0` and automatic side margins, which is what centres it. That is the
+// whole lever needed: give it a `right` and it re-centres itself in what is
+// left, with no arithmetic of ours and nothing else touched. A max-width keeps
+// it from overflowing when the dock is wide and the chat is set wider still.
+// The top bar is in normal flow, so a padding on <body> is enough for that one.
+const DOCK_MIN = 320, DOCK_MAX_FRAC = 0.7;
+function dockAllowed() { return window.innerWidth > 768; }
+function dockPref() { return !!boards.global?.dockSide; }
+function dockOn() { return dockAllowed() && dockPref(); }
+function dockWidth() {
+    const stored = parseInt(localStorage.getItem('mb_dock_w') || '0', 10);
+    const max = Math.round(window.innerWidth * DOCK_MAX_FRAC);
+    const want = Number.isFinite(stored) && stored > 0 ? stored : Math.round(window.innerWidth * 0.42);
+    return Math.max(DOCK_MIN, Math.min(max, want));
+}
+function applyDock(on) {
+    const use = on && dockOn();
+    document.documentElement.style.setProperty('--mb-dock-w', dockWidth() + 'px');
+    $('body').toggleClass('mb-docked', use);
+    $('#mb-modal').toggleClass('mb-docked', use);
+    // The board's own canvas has to be re-measured: its width just changed.
+    pokeViewport();
+    resizeLive();
+    renderInk();
+    scheduleCull();
+}
+function refreshDockUI() {
+    $('#mb-tg-dock').prop('checked', dockPref());
+    $('#mb-dock-row').toggle(dockAllowed());
+}
+
 function openBoard() {
     // Someone may have edited on another device since this tab last looked.
     pullIfNewer(true);
     $('#mb-modal').removeClass('mb-capturing').css('display','block');
+    applyDock(true);
     // Camera first, then the cards. The other way round, the very first cull ran
     // against last session's viewport, so on a big board every picture on it was
     // decoded before anything decided which ones were even on screen.
@@ -2568,6 +2606,8 @@ function closeBoard() {
     // A send in flight is not cancelled by leaving — it is folded into the pill,
     // which is the whole point of being able to walk away from it.
     if (aiJob && !aiJob.bg) foldAiToBackground();
+    // Tavern gets its full width back the moment the board is out of the way.
+    $('body').removeClass('mb-docked');
     hideModalSafely();
     if (drawSaveTimer) serializeDrawing();
     save(true);
@@ -2675,6 +2715,11 @@ function buildUI() {
                     </div>
                 </div>
                 <button class="mb-settings-btn secondary" id="mb-edit-theme" style="display:none;margin-top:8px"><i class="fa-solid fa-sliders"></i> Настроить тему</button>
+                <div id="mb-dock-row" style="display:none">
+                    <span class="mb-settings-label">Окно</span>
+                    ${switchRow('mb-tg-dock', 'Держать сбоку от чата', 'Доска встаёт колонкой справа, чат остаётся под рукой')}
+                    <div class="mb-select-hint">Ширину можно тянуть за левый край доски.</div>
+                </div>
                 <span class="mb-settings-label">Экспорт / импорт</span>
                 <button class="mb-settings-btn" id="mb-export-png"><i class="fa-solid fa-image"></i> Сохранить доску в PNG</button>
                 <button class="mb-settings-btn secondary" id="mb-export">Экспорт доски (JSON)</button>
@@ -2838,6 +2883,9 @@ function buildUI() {
         </div>
     </div></div>`).appendTo('body');
 
+    // The grip that sets how wide the docked column is. Inside the shell so it
+    // travels with it, and inert unless the board is actually docked.
+    $('<div id="mb-dock-grip" title="Потяните, чтобы изменить ширину"></div>').prependTo('#mb-modal .mb-shell');
     $(`<div id="mb-quote-popup">+</div>`).appendTo('body');
     $('<input type="file" id="mb-file-input" accept="image/*" style="display:none">').appendTo('body');
     $('<input type="file" id="mb-collage-input" accept="image/*" multiple style="display:none">').appendTo('body');
@@ -4399,6 +4447,45 @@ function bindEvents() {
         refreshImgTiers();
     });
     $('#mb-tg-bgsend').on('change', function() { setUiPref('bgSend', this.checked); });
+    $('#mb-tg-dock').on('change', function() {
+        setUiPref('dockSide', this.checked);
+        applyDock(true);
+    });
+    // Dragging the grip. Pointer capture, so the drag survives the cursor leaving
+    // the 8px strip — which at speed it always does.
+    (() => {
+        const grip = document.getElementById('mb-dock-grip');
+        if (!grip) return;
+        let live = false;
+        grip.addEventListener('pointerdown', e => {
+            if (!dockOn()) return;
+            live = true;
+            grip.setPointerCapture?.(e.pointerId);
+            e.preventDefault(); e.stopPropagation();
+        });
+        grip.addEventListener('pointermove', e => {
+            if (!live) return;
+            e.preventDefault(); e.stopPropagation();
+            const w = Math.max(DOCK_MIN, Math.min(Math.round(window.innerWidth * DOCK_MAX_FRAC),
+                                                  Math.round(window.innerWidth - e.clientX)));
+            localStorage.setItem('mb_dock_w', w);
+            document.documentElement.style.setProperty('--mb-dock-w', w + 'px');
+        });
+        const end = () => {
+            if (!live) return;
+            live = false;
+            // Re-measure once at the end rather than on every frame of the drag.
+            pokeViewport(); resizeLive(); renderInk(); scheduleCull();
+        };
+        grip.addEventListener('pointerup', end);
+        grip.addEventListener('pointercancel', end);
+    })();
+    // A window narrow enough to be a phone drops the dock on its own; widening it
+    // again puts it back.
+    window.addEventListener('resize', () => {
+        if ($('#mb-modal').is(':visible')) applyDock(true);
+        refreshDockUI();
+    });
     $('#mb-mini-style').on('click', '.mb-mini-opt', function() {
         if (!boards.global) boards.global = { cards: [] };
         boards.global.miniStyle = $(this).data('mini');
